@@ -39,7 +39,9 @@ export default async function Page() {
     <div className="space-y-6">
       <PageHeader title="Abonnés application" subtitle="TalentUpFP — utilisateurs, abonnements & paiements" />
 
-      <Card className="p-4 space-y-4">
+      <Card>
+  <div className="p-4 space-y-4">
+
         <div className="text-sm font-medium text-slate-900">KPI facturation</div>
 
         {kpiError ? (
