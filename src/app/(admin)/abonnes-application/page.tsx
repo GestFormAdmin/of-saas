@@ -8,17 +8,28 @@ type BillingKpiRow = {
   org_id: string;
   org_name: string;
   apprenants_n_1: number;
-  plan_code: 'free' | 'pro' | 'business' | 'scale' | 'enterprise' | 'custom';
-  price_eur: number;
+  plan_code: 'free' | 'pro' | 'business' | 'scale' | 'enterprise' | 'custom' | string;
+  price_eur: number | null;
   billing_year: number;
 };
+
+function planLabel(code: string) {
+  const c = String(code ?? 'free').toLowerCase();
+  if (c === 'free' || c === 'starter') return 'Starter';
+  if (c === 'pro') return 'Pro';
+  if (c === 'business') return 'Business';
+  if (c === 'scale') return 'Scale';
+  if (c === 'enterprise' || c === 'scale+') return 'Scale+';
+  if (c === 'custom') return 'Sur devis';
+  return c;
+}
 
 export default async function Page() {
   const supabase = await createSupabaseServerClient();
 
   const [{ data: subsData, error: subsError }, { data: kpiData, error: kpiError }] = await Promise.all([
-    supabase.rpc('get_app_subscribers_admin'),
-    supabase.rpc('admin_get_billing_kpis'),
+    supabase.rpc('get_app_subscribers_admin_v2'),
+    supabase.rpc('admin_get_billing_kpis_v2'),
   ]);
 
   const rows: SubscriberRow[] = Array.isArray(subsData) ? (subsData as SubscriberRow[]) : [];
@@ -43,7 +54,7 @@ export default async function Page() {
                   <th>Organisation</th>
                   <th>Année</th>
                   <th>Apprenants N-1</th>
-                  <th>Plan</th>
+                  <th>Plan (réel)</th>
                   <th>Prix € / mois</th>
                 </tr>
               </thead>
@@ -60,20 +71,16 @@ export default async function Page() {
                       <td className="font-medium text-slate-900">{r.org_name}</td>
                       <td className="text-slate-700">{r.billing_year}</td>
                       <td className="text-slate-900">{r.apprenants_n_1}</td>
+                      <td className="text-slate-900">{planLabel(r.plan_code)}</td>
                       <td className="text-slate-900">
-                        {r.plan_code === 'free'
-                          ? 'Starter'
-                          : r.plan_code === 'pro'
-                            ? 'Pro'
-                            : r.plan_code === 'business'
-                              ? 'Business'
-                              : r.plan_code === 'scale'
-                                ? 'Scale'
-                                : r.plan_code === 'enterprise'
-                                  ? 'Scale+'
-                                  : 'Sur devis'}
+                        {String(r.plan_code).toLowerCase() === 'custom'
+                          ? 'Sur devis'
+                          : String(r.plan_code).toLowerCase() === 'free'
+                            ? '0 €'
+                            : r.price_eur == null
+                              ? '—'
+                              : `${r.price_eur} €`}
                       </td>
-                      <td className="text-slate-900">{r.plan_code === 'custom' ? 'Sur devis' : `${r.price_eur} €`}</td>
                     </tr>
                   ))
                 )}

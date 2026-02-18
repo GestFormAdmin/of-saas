@@ -1,3 +1,5 @@
+
+
 import { NextResponse } from "next/server";
 import Stripe from "stripe";
 import { createClient } from "@supabase/supabase-js";
@@ -24,7 +26,7 @@ function supabaseAdmin() {
 
 type PlanCode = "free" | "pro" | "business" | "scale" | "enterprise" | "custom";
 
-// ✅ mapping price_id -> plan_code (TES IDs)
+// ✅ mapping price_id -> plan_code
 function planFromPriceId(priceId: string | null): PlanCode {
   if (!priceId) return "free";
 
@@ -37,8 +39,6 @@ function planFromPriceId(priceId: string | null): PlanCode {
   if (priceId === business) return "business";
   if (priceId === scale) return "scale";
   if (priceId === enterprise) return "enterprise";
-
-  // si un jour tu ajoutes d'autres prices, on ne casse pas
   return "free";
 }
 
@@ -67,11 +67,10 @@ export async function POST(req: Request) {
 
       const orgId = (sub.metadata?.org_id ?? null) as string | null;
       if (!orgId) {
-        // 👉 si tu n'as pas org_id en metadata, ton checkout est incomplet
         return NextResponse.json({ received: true, ignored: "missing org_id metadata" });
       }
 
-      const status = sub.status; // active, trialing, canceled...
+      const status = sub.status;
       const priceId = sub.items?.data?.[0]?.price?.id ?? null;
       const planCode = planFromPriceId(priceId);
 
@@ -81,7 +80,6 @@ export async function POST(req: Request) {
 
       const cancelAtPeriodEnd = Boolean(sub.cancel_at_period_end);
 
-      // ✅ upsert subscription (source de vérité)
       const { error: upErr } = await admin
         .from("org_billing_subscriptions")
         .upsert(

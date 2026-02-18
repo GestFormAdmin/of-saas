@@ -6,10 +6,13 @@ import { supabase } from '@/lib/supabase/browser';
 
 export type SubscriberRow = {
   user_id: string;
+
+  // anciens champs
   first_name: string | null;
   last_name: string | null;
   org_name: string | null;
   email: string | null;
+
   subscribed_at: string | null;
   amount_cents: number | null;
   last_charge_at: string | null;
@@ -17,9 +20,24 @@ export type SubscriberRow = {
   invited_trainers_count: number | null;
   subscription_status: string | null;
   banned_until: string | null;
-};
 
-type PlanCode = 'free' | 'pro' | 'business' | 'scale' | 'enterprise' | 'custom';
+  plan_code: string | null;
+  plan_amount_cents: number | null;
+
+  // compat backend (nouveaux champs possibles)
+  plan?: string | null;
+  status?: string | null;
+  subscription_date?: string | null;
+  last_payment_date?: string | null;
+  apprenants_n1?: number | null;
+
+  // compat keys alternatifs possibles
+  firstname?: string | null;
+  lastname?: string | null;
+  org?: string | null;
+  organization_name?: string | null;
+  company?: string | null;
+};
 
 type SortKey =
   | 'last_name'
@@ -84,45 +102,79 @@ function compareNullable(a: any, b: any, dir: SortDir) {
   return as < bs ? -1 * sign : 1 * sign;
 }
 
-function planFromApprenantsN1(count: number | null): PlanCode {
-  const c = count ?? 0;
-  if (c <= 200) return 'free';
-  if (c <= 500) return 'pro';
-  if (c <= 1000) return 'business';
-  if (c <= 1500) return 'scale';
-  if (c <= 2000) return 'enterprise';
-  return 'custom';
+function planLabel(code: string | null) {
+  const c = String(code ?? 'free').toLowerCase();
+  if (c === 'free' || c === 'starter') return 'Starter';
+  if (c === 'pro') return 'Pro';
+  if (c === 'business') return 'Business';
+  if (c === 'scale') return 'Scale';
+  if (c === 'enterprise' || c === 'scale+') return 'Scale+';
+  if (c === 'custom') return 'Sur devis';
+  return c;
 }
 
-const PLAN_LABEL: Record<PlanCode, string> = {
-  free: 'Starter',
-  pro: 'Pro',
-  business: 'Business',
-  scale: 'Scale',
-  enterprise: 'Scale+',
-  custom: 'Sur devis',
-};
+function pickStr(...vals: Array<unknown>) {
+  for (const v of vals) {
+    const s = typeof v === 'string' ? v : v == null ? '' : String(v);
+    if (s.trim()) return s;
+  }
+  return null;
+}
+
+function getFirstName(r: SubscriberRow) {
+  const anyR = r as any;
+  return pickStr(r.first_name, anyR.firstname, anyR.prenom, anyR.firstName);
+}
+
+function getLastName(r: SubscriberRow) {
+  const anyR = r as any;
+  return pickStr(r.last_name, anyR.lastname, anyR.nom, anyR.lastName);
+}
+
+function getOrgName(r: SubscriberRow) {
+  const anyR = r as any;
+  return pickStr(r.org_name, anyR.org, anyR.organization_name, anyR.company, anyR.orgName);
+}
+
+function getPlanCode(r: SubscriberRow) {
+  const raw = (r.plan_code ?? r.plan ?? (r as any).plan_code_snapshot ?? null) as any;
+  return raw == null ? null : String(raw);
+}
+
+function getSubscribedAt(r: SubscriberRow) {
+  return r.subscribed_at ?? r.subscription_date ?? (r as any).subscriptionDate ?? null;
+}
+
+function getLastChargeAt(r: SubscriberRow) {
+  return r.last_charge_at ?? r.last_payment_date ?? (r as any).lastPaymentDate ?? null;
+}
+
+function getApprenantsN1(r: SubscriberRow) {
+  const v = r.apprenants_n_1 ?? r.apprenants_n1 ?? (r as any).apprenantsN1 ?? null;
+  if (v == null) return null;
+  return typeof v === 'number' ? v : Number(v);
+}
 
 function sortValue(r: SubscriberRow, key: SortKey) {
   switch (key) {
     case 'subscribed_at':
-      return dateToMs(r.subscribed_at);
+      return dateToMs(getSubscribedAt(r));
     case 'last_charge_at':
-      return dateToMs(r.last_charge_at);
+      return dateToMs(getLastChargeAt(r));
     case 'amount_cents':
       return r.amount_cents ?? null;
     case 'apprenants_n_1':
-      return r.apprenants_n_1 ?? null;
+      return getApprenantsN1(r);
     case 'plan_activated':
-      return PLAN_LABEL[planFromApprenantsN1(r.apprenants_n_1)];
+      return planLabel(getPlanCode(r));
     case 'invited_trainers_count':
       return r.invited_trainers_count ?? null;
     case 'last_name':
-      return r.last_name ?? null;
+      return getLastName(r) ?? null;
     case 'first_name':
-      return r.first_name ?? null;
+      return getFirstName(r) ?? null;
     case 'org_name':
-      return r.org_name ?? null;
+      return getOrgName(r) ?? null;
     case 'email':
       return r.email ?? null;
     default:
@@ -195,7 +247,12 @@ function UserDetailsModal({
 }) {
   if (!open || !user) return null;
 
-  const plan = planFromApprenantsN1(user.apprenants_n_1);
+  const first = getFirstName(user);
+  const last = getLastName(user);
+  const org = getOrgName(user);
+  const plan = planLabel(getPlanCode(user));
+  const subscribedAt = getSubscribedAt(user);
+  const lastChargeAt = getLastChargeAt(user);
 
   return (
     <div className="fixed inset-0 z-50">
@@ -205,7 +262,7 @@ function UserDetailsModal({
           <div className="flex items-center justify-between border-b px-4 py-3">
             <div className="min-w-0">
               <div className="text-sm font-medium text-slate-900 truncate">
-                {user.first_name ?? '—'} {user.last_name ?? ''}
+                {first ?? '—'} {last ?? ''}
               </div>
               <div className="text-xs text-slate-600 truncate">{user.email ?? '—'}</div>
             </div>
@@ -223,7 +280,7 @@ function UserDetailsModal({
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
               <div className="rounded-xl border p-3">
                 <div className="text-xs text-slate-500">OF</div>
-                <div className="text-slate-900">{user.org_name ?? '—'}</div>
+                <div className="text-slate-900">{org ?? '—'}</div>
               </div>
 
               <div className="rounded-xl border p-3">
@@ -232,28 +289,28 @@ function UserDetailsModal({
               </div>
 
               <div className="rounded-xl border p-3">
-                <div className="text-xs text-slate-500">Plan activé</div>
-                <div className="text-slate-900">{PLAN_LABEL[plan]}</div>
+                <div className="text-xs text-slate-500">Plan (réel)</div>
+                <div className="text-slate-900">{plan}</div>
+              </div>
+
+              <div className="rounded-xl border p-3">
+                <div className="text-xs text-slate-500">Prix du plan</div>
+                <div className="text-slate-900">{fmtMoneyCents(user.plan_amount_cents)}</div>
               </div>
 
               <div className="rounded-xl border p-3">
                 <div className="text-xs text-slate-500">Date souscription</div>
-                <div className="text-slate-900">{fmtDate(user.subscribed_at)}</div>
-              </div>
-
-              <div className="rounded-xl border p-3">
-                <div className="text-xs text-slate-500">Montant abonnement</div>
-                <div className="text-slate-900">{fmtMoneyCents(user.amount_cents)}</div>
+                <div className="text-slate-900">{fmtDate(subscribedAt)}</div>
               </div>
 
               <div className="rounded-xl border p-3">
                 <div className="text-xs text-slate-500">Dernier prélèvement</div>
-                <div className="text-slate-900">{fmtDate(user.last_charge_at)}</div>
+                <div className="text-slate-900">{fmtDate(lastChargeAt)}</div>
               </div>
 
               <div className="rounded-xl border p-3">
-                <div className="text-xs text-slate-500">Apprenants N-1</div>
-                <div className="text-slate-900">{user.apprenants_n_1 ?? 0}</div>
+                <div className="text-xs text-slate-500">Montant dernier prélèvement</div>
+                <div className="text-slate-900">{fmtMoneyCents(user.amount_cents)}</div>
               </div>
 
               <div className="rounded-xl border p-3 sm:col-span-2">
@@ -304,16 +361,16 @@ export default function SubscribersApplicationTableClient({ rows }: { rows: Subs
     if (!q) return localRows;
 
     return localRows.filter((r) => {
-      const plan = PLAN_LABEL[planFromApprenantsN1(r.apprenants_n_1)];
+      const plan = planLabel(getPlanCode(r));
       const hay =
         [
-          r.first_name,
-          r.last_name,
-          r.org_name,
+          getFirstName(r),
+          getLastName(r),
+          getOrgName(r),
           r.email,
           r.subscription_status,
           r.amount_cents,
-          r.apprenants_n_1,
+          getApprenantsN1(r),
           plan,
           r.invited_trainers_count,
           isBlocked(r.banned_until) ? 'bloqué' : 'actif',
@@ -330,11 +387,6 @@ export default function SubscribersApplicationTableClient({ rows }: { rows: Subs
     copy.sort((a, b) => compareNullable(sortValue(a, sortKey), sortValue(b, sortKey), sortDir));
     return copy;
   }, [filtered, sortKey, sortDir]);
-
-  const onVisualiser = (r: SubscriberRow) => {
-    setDetailsUser(r);
-    setDetailsOpen(true);
-  };
 
   const onRevoquer = async (r: SubscriberRow) => {
     const ok = window.confirm(
@@ -358,6 +410,7 @@ export default function SubscribersApplicationTableClient({ rows }: { rows: Subs
               ...x,
               first_name: null,
               last_name: null,
+              org_name: null,
               banned_until: new Date(Date.now() + 1000 * 60 * 60 * 24 * 365 * 100).toISOString(),
             }
           : x
@@ -422,10 +475,10 @@ export default function SubscribersApplicationTableClient({ rows }: { rows: Subs
               <SortTh label="Prénom" k="first_name" sortKey={sortKey} sortDir={sortDir} onSort={onSort} />
               <SortTh label="OF" k="org_name" sortKey={sortKey} sortDir={sortDir} onSort={onSort} />
               <SortTh label="Mail" k="email" sortKey={sortKey} sortDir={sortDir} onSort={onSort} />
-              <SortTh label="Plan activé" k="plan_activated" sortKey={sortKey} sortDir={sortDir} onSort={onSort} />
+              <SortTh label="Plan (réel)" k="plan_activated" sortKey={sortKey} sortDir={sortDir} onSort={onSort} />
               <SortTh label="Souscription" k="subscribed_at" sortKey={sortKey} sortDir={sortDir} onSort={onSort} />
-              <SortTh label="Montant" k="amount_cents" sortKey={sortKey} sortDir={sortDir} onSort={onSort} />
-              <SortTh label="Dernier paiement" k="last_charge_at" sortKey={sortKey} sortDir={sortDir} onSort={onSort} />
+              <SortTh label="Dernier prélèvement" k="amount_cents" sortKey={sortKey} sortDir={sortDir} onSort={onSort} />
+              <SortTh label="Date dernier paiement" k="last_charge_at" sortKey={sortKey} sortDir={sortDir} onSort={onSort} />
               <SortTh label="Apprenants N-1" k="apprenants_n_1" sortKey={sortKey} sortDir={sortDir} onSort={onSort} />
               <SortTh
                 label="Formateurs invités"
@@ -449,31 +502,39 @@ export default function SubscribersApplicationTableClient({ rows }: { rows: Subs
               sorted.map((r, idx) => {
                 const disabled = busyUserId === r.user_id;
                 const blocked = isBlocked(r.banned_until);
-                const plan = PLAN_LABEL[planFromApprenantsN1(r.apprenants_n_1)];
+
+                const plan = planLabel(getPlanCode(r));
+                const subscribedAt = getSubscribedAt(r);
+                const lastChargeAt = getLastChargeAt(r);
+
+                const first = getFirstName(r);
+                const last = getLastName(r);
+                const org = getOrgName(r);
 
                 return (
                   <tr
-                    key={`${r.user_id ?? 'noid'}-${r.org_name ?? 'noorg'}-${idx}`}
+                    key={`${r.user_id ?? 'noid'}-${org ?? 'noorg'}-${idx}`}
                     className={['[&>td]:px-4 [&>td]:py-3', blocked ? 'bg-red-50' : ''].join(' ')}
                   >
-                    <td className={blocked ? 'font-medium text-red-800' : 'font-medium text-slate-900'}>
-                      {r.last_name ?? '—'}
-                    </td>
-                    <td className={blocked ? 'text-red-800' : 'text-slate-900'}>{r.first_name ?? '—'}</td>
-                    <td className={blocked ? 'text-red-700' : 'text-slate-700'}>{r.org_name ?? '—'}</td>
+                    <td className={blocked ? 'font-medium text-red-800' : 'font-medium text-slate-900'}>{last ?? '—'}</td>
+                    <td className={blocked ? 'text-red-800' : 'text-slate-900'}>{first ?? '—'}</td>
+                    <td className={blocked ? 'text-red-700' : 'text-slate-700'}>{org ?? '—'}</td>
                     <td className={blocked ? 'text-red-700' : 'text-slate-700'}>{r.email ?? '—'}</td>
                     <td className={blocked ? 'text-red-800' : 'text-slate-900'}>{plan}</td>
-                    <td className={blocked ? 'text-red-700' : 'text-slate-700'}>{fmtDate(r.subscribed_at)}</td>
+                    <td className={blocked ? 'text-red-700' : 'text-slate-700'}>{fmtDate(subscribedAt)}</td>
                     <td className={blocked ? 'text-red-800' : 'text-slate-900'}>{fmtMoneyCents(r.amount_cents)}</td>
-                    <td className={blocked ? 'text-red-700' : 'text-slate-700'}>{fmtDate(r.last_charge_at)}</td>
-                    <td className={blocked ? 'text-red-800' : 'text-slate-900'}>{r.apprenants_n_1 ?? 0}</td>
+                    <td className={blocked ? 'text-red-700' : 'text-slate-700'}>{fmtDate(lastChargeAt)}</td>
+                    <td className={blocked ? 'text-red-800' : 'text-slate-900'}>{getApprenantsN1(r) ?? 0}</td>
                     <td className={blocked ? 'text-red-800' : 'text-slate-900'}>{r.invited_trainers_count ?? 0}</td>
 
                     <td className="text-right">
                       <div className="flex justify-end gap-2">
                         <ActionIcon
                           title="Visualiser"
-                          onClick={() => onVisualiser(r)}
+                          onClick={() => {
+                            setDetailsUser(r);
+                            setDetailsOpen(true);
+                          }}
                           disabled={disabled}
                           className="bg-blue-100 text-blue-600 hover:bg-blue-200"
                         >
@@ -499,7 +560,7 @@ export default function SubscribersApplicationTableClient({ rows }: { rows: Subs
                         </ActionIcon>
 
                         <ActionIcon
-                          title="Abonnement (bientôt)"
+                          title="Abonnement (plan/prix visible dans fiche)"
                           onClick={() => {}}
                           disabled={true}
                           className="bg-emerald-100 text-emerald-600"

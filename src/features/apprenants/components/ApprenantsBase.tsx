@@ -98,6 +98,20 @@ type SortState = { key: ColKey; dir: "asc" | "desc" };
 
 /* ================== HELPERS ================== */
 
+function errorToMessage(err: any): string {
+  if (!err) return "Erreur inconnue";
+  if (typeof err === "string") return err;
+  if (err?.message) return err.message;
+  if (err?.error_description) return err.error_description;
+  if (err?.details) return err.details;
+  if (err?.hint) return err.hint;
+  try {
+    return JSON.stringify(err);
+  } catch {
+    return String(err);
+  }
+}
+
 function pad2(n: number) {
   return String(n).padStart(2, "0");
 }
@@ -318,6 +332,7 @@ export default function ApprenantsPageClient() {
 
   const [multiRows, setMultiRows] = useState<MultiRow[]>([{ ...EMPTY_MULTI_ROW, key: makeKey() }]);
   const [multiError, setMultiError] = useState<string | null>(null);
+  const [multiSaving, setMultiSaving] = useState(false);
 
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [selected, setSelected] = useState<ApprenantDb | null>(null);
@@ -409,31 +424,42 @@ export default function ApprenantsPageClient() {
       forprevNoPrev,
     };
   }, [rows]);
+const ensureOrgContext = async (_orgId: string) => {
+  const { error: e } = await supabase.rpc("set_current_org", { p_org_id: _orgId });
 
-  const ensureOrgContext = async (orgId: string) => {
-    const { error: e } = await supabase.rpc("set_current_org", { p_org_id: orgId });
-    if (e && !/function .*set_current_org/i.test(e.message)) {
-      throw e;
-    }
-  };
+  // si la fonction n'existe pas -> on ignore
+  if (e && /function .*set_current_org/i.test(e.message)) return true;
+
+  // si c'est forbidden (RLS/permissions) -> on ignore aussi (on ne bloque pas l'app)
+  if (e && /forbidden|permission|not allowed|not authorized|403/i.test(e.message)) return true;
+
+  // autres erreurs -> on affiche, mais on ne throw pas (sinon crash)
+  if (e) {
+    setError(`Contexte org: ${errorToMessage(e)}`);
+    return false;
+  }
+
+  return true;
+};
 
   const getOrgId = async () => {
     const { data: orgId, error: e } = await supabase.rpc("current_org_id");
     if (e || !orgId) {
-      setError(e?.message ?? "Org active introuvable");
+      setError(e ? errorToMessage(e) : "Org active introuvable");
       return null;
     }
-    await ensureOrgContext(orgId as string);
+    const ok = await ensureOrgContext(orgId as string);
+    if (!ok) return null;
     return orgId as string;
   };
 
   const loadRefs = async () => {
     const clientsRes = await supabase.from("clients").select("id,name").order("name");
-    if (clientsRes.error) setError("Clients: " + clientsRes.error.message);
+    if (clientsRes.error) setError("Clients: " + errorToMessage(clientsRes.error));
     setClients((clientsRes.data ?? []) as Client[]);
 
     const produitsRes = await supabase.from("products").select("id,name").order("name");
-    if (produitsRes.error) setError("Produits: " + produitsRes.error.message);
+    if (produitsRes.error) setError("Produits: " + errorToMessage(produitsRes.error));
     setProduits((produitsRes.data ?? []) as Produit[]);
   };
 
@@ -447,7 +473,7 @@ export default function ApprenantsPageClient() {
       .order("last_name");
 
     if (baseErr) {
-      setError(baseErr.message);
+      setError(errorToMessage(baseErr));
       setRows([]);
       setLoading(false);
       return;
@@ -464,7 +490,7 @@ export default function ApprenantsPageClient() {
 
     const { data: apprData, error: apprErr } = await supabase.from("apprenants").select("id, client_id").in("id", ids);
     if (apprErr) {
-      setError(apprErr.message);
+      setError(errorToMessage(apprErr));
       setRows(baseRows);
       setLoading(false);
       return;
@@ -475,7 +501,7 @@ export default function ApprenantsPageClient() {
 
     if (clientIds.length > 0) {
       const { data: cData, error: cErr } = await supabase.from("clients").select("id,name").in("id", clientIds);
-      if (cErr) setError(cErr.message);
+      if (cErr) setError(errorToMessage(cErr));
       (cData ?? []).forEach((c: any) => clientNameById.set(c.id, c.name ?? "—"));
     }
 
@@ -491,7 +517,7 @@ export default function ApprenantsPageClient() {
       .in("apprenant_id", ids);
 
     if (pivErr) {
-      setError(pivErr.message);
+      setError(errorToMessage(pivErr));
       setRows(
         baseRows.map((r) => ({
           ...r,
@@ -508,7 +534,7 @@ export default function ApprenantsPageClient() {
 
     if (sessionIds.length > 0) {
       const { data: sData, error: sErr } = await supabase.from("sessions").select("id,name").in("id", sessionIds);
-      if (sErr) setError(sErr.message);
+      if (sErr) setError(errorToMessage(sErr));
       (sData ?? []).forEach((s: any) => sessionNameById.set(s.id, s.name ?? "—"));
     }
 
@@ -554,7 +580,7 @@ export default function ApprenantsPageClient() {
       .eq("org_id", orgId);
 
     if (e1) {
-      setError(e1.message);
+      setError(errorToMessage(e1));
       setProductStats([]);
       setProductStatsLoading(false);
       return;
@@ -568,7 +594,7 @@ export default function ApprenantsPageClient() {
       .in("apprenant_id", apprIds.length ? apprIds : ["00000000-0000-0000-0000-000000000000"]);
 
     if (pivErr) {
-      setError(pivErr.message);
+      setError(errorToMessage(pivErr));
       setProductStats([]);
       setProductStatsLoading(false);
       return;
@@ -629,7 +655,7 @@ export default function ApprenantsPageClient() {
     const { data, error: e } = await supabase.from("competences").select("id,label").eq("product_id", productId).order("label");
 
     if (e) {
-      setError(e.message);
+      setError(errorToMessage(e));
       setCompetences([]);
       setCompChecks({});
       return;
@@ -668,11 +694,15 @@ export default function ApprenantsPageClient() {
         .eq("end_date", endDate)
         .order("start_date", { ascending: false });
 
-      if (e) throw e;
+      if (e) {
+        setSessions([]);
+        setSessionsError(errorToMessage(e));
+        return;
+      }
       setSessions((data ?? []) as Session[]);
     } catch (e: any) {
       setSessions([]);
-      setSessionsError(e?.message ?? "Erreur chargement sessions");
+      setSessionsError(errorToMessage(e));
     } finally {
       setSessionsLoading(false);
     }
@@ -766,67 +796,75 @@ export default function ApprenantsPageClient() {
 
   const openViewModal = async (id: string) => {
     setError(null);
-    const { data, error: e } = await supabase.from("apprenants").select("*").eq("id", id).maybeSingle();
-    if (e || !data) {
-      setError(e?.message ?? "Erreur chargement apprenant");
-      return;
+    try {
+      const { data, error: e } = await supabase.from("apprenants").select("*").eq("id", id).maybeSingle();
+      if (e || !data) {
+        setError(e ? errorToMessage(e) : "Erreur chargement apprenant");
+        return;
+      }
+      setSelected(data as ApprenantDb);
+      setSelectedId(id);
+      setOpenView(true);
+    } catch (e: any) {
+      setError(errorToMessage(e));
     }
-    setSelected(data as ApprenantDb);
-    setSelectedId(id);
-    setOpenView(true);
   };
 
   const openEditModal = async (id: string) => {
     setError(null);
 
-    const { data, error: e } = await supabase
-      .from("apprenants")
-      .select("*, apprenant_competences(competence_id, validated), apprenant_sessions(session_id)")
-      .eq("id", id)
-      .maybeSingle();
+    try {
+      const { data, error: e } = await supabase
+        .from("apprenants")
+        .select("*, apprenant_competences(competence_id, validated), apprenant_sessions(session_id)")
+        .eq("id", id)
+        .maybeSingle();
 
-    if (e || !data) {
-      setError(e?.message ?? "Erreur chargement apprenant");
-      return;
+      if (e || !data) {
+        setError(e ? errorToMessage(e) : "Erreur chargement apprenant");
+        return;
+      }
+
+      const a = data as ApprenantDb;
+      setSelected(a);
+      setSelectedId(a.id);
+
+      setForm({
+        last_name: a.last_name ?? "",
+        first_name: a.first_name ?? "",
+        birth_date: a.birth_date ?? null,
+        email: a.email ?? null,
+
+        product_id: a.product_id ?? null,
+        client_id: a.client_id ?? null,
+        structure: a.structure ?? null,
+
+        start_date: a.start_date ?? null,
+        end_date: a.end_date ?? null,
+
+        street: a.street ?? null,
+        postal_code: a.postal_code ?? null,
+        city: a.city ?? null,
+
+        forprev: a.forprev === true,
+        candidate_manual_validated: a.candidate_manual_validated === true,
+      });
+
+      const seed: Record<string, boolean> = {};
+      (a.apprenant_competences ?? []).forEach((x) => {
+        seed[x.competence_id] = x.validated === true;
+      });
+      await loadCompetencesForProduct(a.product_id ?? null, seed);
+
+      const linked = (a.apprenant_sessions ?? []).map((x) => x.session_id);
+      setSelectedSessionIds(linked);
+
+      setSessions([]);
+      setSessionsError(null);
+      setOpenEdit(true);
+    } catch (e: any) {
+      setError(errorToMessage(e));
     }
-
-    const a = data as ApprenantDb;
-    setSelected(a);
-    setSelectedId(a.id);
-
-    setForm({
-      last_name: a.last_name ?? "",
-      first_name: a.first_name ?? "",
-      birth_date: a.birth_date ?? null,
-      email: a.email ?? null,
-
-      product_id: a.product_id ?? null,
-      client_id: a.client_id ?? null,
-      structure: a.structure ?? null,
-
-      start_date: a.start_date ?? null,
-      end_date: a.end_date ?? null,
-
-      street: a.street ?? null,
-      postal_code: a.postal_code ?? null,
-      city: a.city ?? null,
-
-      forprev: a.forprev === true,
-      candidate_manual_validated: a.candidate_manual_validated === true,
-    });
-
-    const seed: Record<string, boolean> = {};
-    (a.apprenant_competences ?? []).forEach((x) => {
-      seed[x.competence_id] = x.validated === true;
-    });
-    await loadCompetencesForProduct(a.product_id ?? null, seed);
-
-    const linked = (a.apprenant_sessions ?? []).map((x) => x.session_id);
-    setSelectedSessionIds(linked);
-
-    setSessions([]);
-    setSessionsError(null);
-    setOpenEdit(true);
   };
 
   const saveCreate = async () => {
@@ -842,7 +880,6 @@ export default function ApprenantsPageClient() {
 
       const orgId = await getOrgId();
       if (!orgId) return;
-      await ensureOrgContext(orgId);
 
       const payloadForRpc = {
         last_name: form.last_name.trim(),
@@ -868,7 +905,7 @@ export default function ApprenantsPageClient() {
       const { data: inserted, error: insErr } = await supabase.rpc("create_apprenant_from_json", { p_item: payloadForRpc });
 
       if (insErr || !inserted?.id) {
-        const msg = insErr?.message ?? "Erreur création apprenant";
+        const msg = insErr ? errorToMessage(insErr) : "Erreur création apprenant";
         if (/row-level security/i.test(msg)) {
           setError("Création refusée (RLS). Ton utilisateur n'a pas le droit d'insérer dans cette org.");
         } else {
@@ -887,7 +924,7 @@ export default function ApprenantsPageClient() {
           validated: compChecks[c.id] === true,
         }));
         const { error: e } = await supabase.from("apprenant_competences").insert(rowsToInsert);
-        if (e) setError(e.message);
+        if (e) setError(errorToMessage(e));
       }
 
       if (selectedSessionIds.length > 0) {
@@ -897,197 +934,219 @@ export default function ApprenantsPageClient() {
           session_id: sessionId,
         }));
         const { error: e } = await supabase.from("apprenant_sessions").insert(links);
-        if (e) setError(e.message);
+        if (e) setError(errorToMessage(e));
       }
 
       setOpenCreate(false);
       await loadRows();
       await loadProductStats();
+    } catch (e: any) {
+      setError(errorToMessage(e));
     } finally {
       setSaving(false);
     }
   };
 
   const saveMultiCreate = async () => {
+    if (multiSaving) return;
+    setMultiSaving(true);
     setMultiError(null);
 
-    const clean = multiRows
-      .map((r) => ({
-        last_name: r.last_name.trim(),
-        first_name: r.first_name.trim(),
-        birth_date: r.birth_date || null,
-        email: r.email?.trim() || null,
-      }))
-      .filter((r) => r.last_name.length > 0 || r.first_name.length > 0 || (r.email ?? "").length > 0 || !!r.birth_date);
+    try {
+      const clean = multiRows
+        .map((r) => ({
+          last_name: r.last_name.trim(),
+          first_name: r.first_name.trim(),
+          birth_date: r.birth_date || null,
+          email: r.email?.trim() || null,
+        }))
+        .filter((r) => r.last_name.length > 0 || r.first_name.length > 0 || (r.email ?? "").length > 0 || !!r.birth_date);
 
-    const valid = clean.filter((r) => r.last_name.length > 0 && r.first_name.length > 0);
-    if (valid.length === 0) {
-      setMultiError("Ajoute au moins 1 apprenant avec Nom + Prénom.");
-      return;
-    }
-
-    const orgId = await getOrgId();
-    if (!orgId) return;
-
-    const common = {
-      org_id: orgId,
-
-      product_id: form.product_id,
-      client_id: form.client_id,
-      structure: form.structure?.trim() || null,
-
-      start_date: form.start_date || null,
-      end_date: form.end_date || null,
-
-      street: form.street?.trim() || null,
-      postal_code: form.postal_code?.trim() || null,
-      city: form.city?.trim() || null,
-
-      forprev: form.forprev ? true : null,
-      candidate_manual_validated: !!form.candidate_manual_validated,
-    };
-
-    const payloads = valid.map((r) => ({
-      ...common,
-      last_name: r.last_name,
-      first_name: r.first_name,
-      birth_date: r.birth_date,
-      email: r.email,
-    }));
-
-    const { data: insertedRows, error: insErr } = await supabase.rpc("create_apprenants_bulk", { p_items: payloads });
-
-    if (insErr) {
-      setMultiError(insErr.message);
-      return;
-    }
-
-    const newIds = (insertedRows ?? []).map((x: any) => x.id as string);
-    if (newIds.length === 0) {
-      setMultiError("Aucun apprenant inséré.");
-      return;
-    }
-
-    if (competences.length > 0) {
-      const pivots: any[] = [];
-      for (const apprenantId of newIds) {
-        for (const c of competences) {
-          pivots.push({
-            org_id: orgId,
-            apprenant_id: apprenantId,
-            competence_id: c.id,
-            validated: compChecks[c.id] === true,
-          });
-        }
+      const valid = clean.filter((r) => r.last_name.length > 0 && r.first_name.length > 0);
+      if (valid.length === 0) {
+        setMultiError("Ajoute au moins 1 apprenant avec Nom + Prénom.");
+        return;
       }
-      const { error: pivErr } = await supabase.from("apprenant_competences").insert(pivots);
-      if (pivErr) setError(pivErr.message);
-    }
 
-    if (selectedSessionIds.length > 0) {
-      const links: any[] = [];
-      for (const apprenantId of newIds) {
-        for (const sessionId of selectedSessionIds) {
-          links.push({ org_id: orgId, apprenant_id: apprenantId, session_id: sessionId });
-        }
+      const orgId = await getOrgId();
+      if (!orgId) return;
+
+      const common = {
+        org_id: orgId,
+
+        product_id: form.product_id,
+        client_id: form.client_id,
+        structure: form.structure?.trim() || null,
+
+        start_date: form.start_date || null,
+        end_date: form.end_date || null,
+
+        street: form.street?.trim() || null,
+        postal_code: form.postal_code?.trim() || null,
+        city: form.city?.trim() || null,
+
+        forprev: form.forprev ? true : null,
+        candidate_manual_validated: !!form.candidate_manual_validated,
+      };
+
+      const payloads = valid.map((r) => ({
+        ...common,
+        last_name: r.last_name,
+        first_name: r.first_name,
+        birth_date: r.birth_date,
+        email: r.email,
+      }));
+
+      // ⚠️ IMPORTANT: si create_apprenants_bulk renvoie une erreur (RLS, cast date, uuid, etc),
+      // on ne throw PAS, on affiche un message lisible -> pas de Runtime Error [object Object]
+      const { data: insertedRows, error: insErr } = await supabase.rpc("create_apprenants_bulk", { p_items: payloads });
+
+      if (insErr) {
+        setMultiError(errorToMessage(insErr));
+        return;
       }
-      const { error: linkErr } = await supabase.from("apprenant_sessions").insert(links);
-      if (linkErr) setError(linkErr.message);
-    }
 
-    setOpenMulti(false);
-    await loadRows();
-    await loadProductStats();
+      const newIds = (insertedRows ?? []).map((x: any) => x.id as string).filter(Boolean);
+      if (newIds.length === 0) {
+        setMultiError("Aucun apprenant inséré.");
+        return;
+      }
+
+      if (competences.length > 0) {
+        const pivots: any[] = [];
+        for (const apprenantId of newIds) {
+          for (const c of competences) {
+            pivots.push({
+              org_id: orgId,
+              apprenant_id: apprenantId,
+              competence_id: c.id,
+              validated: compChecks[c.id] === true,
+            });
+          }
+        }
+        const { error: pivErr } = await supabase.from("apprenant_competences").insert(pivots);
+        if (pivErr) setError(errorToMessage(pivErr));
+      }
+
+      if (selectedSessionIds.length > 0) {
+        const links: any[] = [];
+        for (const apprenantId of newIds) {
+          for (const sessionId of selectedSessionIds) {
+            links.push({ org_id: orgId, apprenant_id: apprenantId, session_id: sessionId });
+          }
+        }
+        const { error: linkErr } = await supabase.from("apprenant_sessions").insert(links);
+        if (linkErr) setError(errorToMessage(linkErr));
+      }
+
+      setOpenMulti(false);
+      await loadRows();
+      await loadProductStats();
+    } catch (e: any) {
+      // Catch ultime: on transforme tout en string -> plus de crash React
+      setMultiError(errorToMessage(e));
+    } finally {
+      setMultiSaving(false);
+    }
   };
 
   const saveEdit = async () => {
     if (!selectedId) return;
     if (!required(form.last_name) || !required(form.first_name)) return;
 
-    const payload = {
-      last_name: form.last_name.trim(),
-      first_name: form.first_name.trim(),
-      birth_date: form.birth_date || null,
-      email: form.email?.trim() || null,
+    setError(null);
+    setSaving(true);
 
-      product_id: form.product_id,
-      client_id: form.client_id,
-      structure: form.structure?.trim() || null,
+    try {
+      const payload = {
+        last_name: form.last_name.trim(),
+        first_name: form.first_name.trim(),
+        birth_date: form.birth_date || null,
+        email: form.email?.trim() || null,
 
-      start_date: form.start_date || null,
-      end_date: form.end_date || null,
+        product_id: form.product_id,
+        client_id: form.client_id,
+        structure: form.structure?.trim() || null,
 
-      street: form.street?.trim() || null,
-      postal_code: form.postal_code?.trim() || null,
-      city: form.city?.trim() || null,
+        start_date: form.start_date || null,
+        end_date: form.end_date || null,
 
-      forprev: form.forprev ? true : null,
-      candidate_manual_validated: !!form.candidate_manual_validated,
-    };
+        street: form.street?.trim() || null,
+        postal_code: form.postal_code?.trim() || null,
+        city: form.city?.trim() || null,
 
-    const orgId = await getOrgId();
-    if (!orgId) return;
+        forprev: form.forprev ? true : null,
+        candidate_manual_validated: !!form.candidate_manual_validated,
+      };
 
-    const { error: updErr } = await supabase.from("apprenants").update(payload).eq("org_id", orgId).eq("id", selectedId);
-    if (updErr) {
-      setError(updErr.message);
-      return;
-    }
+      const orgId = await getOrgId();
+      if (!orgId) return;
 
-    const { error: delPivotErr } = await supabase
-      .from("apprenant_competences")
-      .delete()
-      .eq("org_id", orgId)
-      .eq("apprenant_id", selectedId);
-
-    if (delPivotErr) {
-      setError(delPivotErr.message);
-      return;
-    }
-
-    if (competences.length > 0) {
-      const rowsToInsert = competences.map((c) => ({
-        org_id: orgId,
-        apprenant_id: selectedId,
-        competence_id: c.id,
-        validated: compChecks[c.id] === true,
-      }));
-
-      const { error: pivotErr } = await supabase.from("apprenant_competences").insert(rowsToInsert);
-      if (pivotErr) {
-        setError(pivotErr.message);
+      const { error: updErr } = await supabase.from("apprenants").update(payload).eq("org_id", orgId).eq("id", selectedId);
+      if (updErr) {
+        setError(errorToMessage(updErr));
         return;
       }
-    }
 
-    const { error: delLinksErr } = await supabase
-      .from("apprenant_sessions")
-      .delete()
-      .eq("org_id", orgId)
-      .eq("apprenant_id", selectedId);
+      const { error: delPivotErr } = await supabase
+        .from("apprenant_competences")
+        .delete()
+        .eq("org_id", orgId)
+        .eq("apprenant_id", selectedId);
 
-    if (delLinksErr) {
-      setError(delLinksErr.message);
-      return;
-    }
-
-    if (selectedSessionIds.length > 0) {
-      const links = selectedSessionIds.map((sessionId) => ({
-        org_id: orgId,
-        apprenant_id: selectedId,
-        session_id: sessionId,
-      }));
-
-      const { error: insLinksErr } = await supabase.from("apprenant_sessions").insert(links);
-      if (insLinksErr) {
-        setError(insLinksErr.message);
+      if (delPivotErr) {
+        setError(errorToMessage(delPivotErr));
         return;
       }
-    }
 
-    setOpenEdit(false);
-    await loadRows();
-    await loadProductStats();
+      if (competences.length > 0) {
+        const rowsToInsert = competences.map((c) => ({
+          org_id: orgId,
+          apprenant_id: selectedId,
+          competence_id: c.id,
+          validated: compChecks[c.id] === true,
+        }));
+
+        const { error: pivotErr } = await supabase.from("apprenant_competences").insert(rowsToInsert);
+        if (pivotErr) {
+          setError(errorToMessage(pivotErr));
+          return;
+        }
+      }
+
+      const { error: delLinksErr } = await supabase
+        .from("apprenant_sessions")
+        .delete()
+        .eq("org_id", orgId)
+        .eq("apprenant_id", selectedId);
+
+      if (delLinksErr) {
+        setError(errorToMessage(delLinksErr));
+        return;
+      }
+
+      if (selectedSessionIds.length > 0) {
+        const links = selectedSessionIds.map((sessionId) => ({
+          org_id: orgId,
+          apprenant_id: selectedId,
+          session_id: sessionId,
+        }));
+
+        const { error: insLinksErr } = await supabase.from("apprenant_sessions").insert(links);
+        if (insLinksErr) {
+          setError(errorToMessage(insLinksErr));
+          return;
+        }
+      }
+
+      setOpenEdit(false);
+      await loadRows();
+      await loadProductStats();
+    } catch (e: any) {
+      setError(errorToMessage(e));
+    } finally {
+      setSaving(false);
+    }
   };
 
   async function deleteRow(id: string) {
@@ -1099,7 +1158,7 @@ export default function ApprenantsPageClient() {
     const { error: e } = await supabase.rpc("delete_apprenant", { p_apprenant_id: id });
 
     if (e) {
-      setError(e.message);
+      setError(errorToMessage(e));
       return;
     }
 
@@ -1120,7 +1179,7 @@ export default function ApprenantsPageClient() {
     const { error: e } = await supabase.from("apprenants").update({ forprev: next }).eq("org_id", orgId).eq("id", id);
 
     if (e) {
-      setError(e.message);
+      setError(errorToMessage(e));
       return;
     }
 
@@ -1318,32 +1377,6 @@ export default function ApprenantsPageClient() {
           </label>
         )}
       </div>
-    </div>
-  );
-
-  const FormFields = (
-    <div className="space-y-5">
-      <div className="grid grid-cols-2 gap-3">
-        <div>
-          <Label>Nom *</Label>
-          <Input value={form.last_name} onChange={(e) => onChange("last_name", (e.target as HTMLInputElement).value)} />
-        </div>
-        <div>
-          <Label>Prénom *</Label>
-          <Input value={form.first_name} onChange={(e) => onChange("first_name", (e.target as HTMLInputElement).value)} />
-        </div>
-        <div>
-          <Label>Date de naissance</Label>
-          <Input type="date" value={form.birth_date ?? ""} onChange={(e) => onChange("birth_date", (e.target as HTMLInputElement).value || null)} />
-        </div>
-        <div>
-          <Label>Email</Label>
-          <Input value={form.email ?? ""} onChange={(e) => onChange("email", (e.target as HTMLInputElement).value || null)} />
-        </div>
-      </div>
-
-      <div className="h-px bg-border" />
-      {CommonFields}
     </div>
   );
 
@@ -1807,15 +1840,15 @@ export default function ApprenantsPageClient() {
                       </table>
                     </div>
 
-                    {multiError && <div className="mt-3 text-sm font-semibold text-red-600">{multiError}</div>}
+                    {multiError && <div className="mt-3 whitespace-pre-wrap text-sm font-semibold text-red-600">{multiError}</div>}
                   </div>
 
                   <div className="flex justify-end gap-3">
-                    <SoftButton type="button" onClick={() => setOpenMulti(false)}>
+                    <SoftButton type="button" onClick={() => setOpenMulti(false)} disabled={multiSaving}>
                       Annuler
                     </SoftButton>
-                    <PrimaryButton type="button" onClick={() => void saveMultiCreate()}>
-                      Enregistrer tout
+                    <PrimaryButton type="button" onClick={() => void saveMultiCreate()} disabled={multiSaving}>
+                      {multiSaving ? "Enregistrement…" : "Enregistrer tout"}
                     </PrimaryButton>
                   </div>
                 </div>
@@ -1846,7 +1879,7 @@ export default function ApprenantsPageClient() {
                   </div>
 
                   <div className="flex justify-end gap-3">
-                    <SoftButton type="button" onClick={() => closeAll()}>
+                    <SoftButton type="button" onClick={() => closeAll()} disabled={saving}>
                       Annuler
                     </SoftButton>
 

@@ -323,10 +323,7 @@ function sortSessions(rows: SessionRow[], sort: SortState, learnerCountBySession
 export default function SessionsPage() {
   const { allowedPages, isLoading } = usePermissions() as any;
 
-  const canCreate = !isLoading && (allowedPages?.includes?.("sessions:create") ?? false);
-  const canEdit = !isLoading && (allowedPages?.includes?.("sessions:edit") ?? false);
-  const canDelete = !isLoading && (allowedPages?.includes?.("sessions:delete") ?? false);
-
+  // --- user id (auth ready) ---
   const [userId, setUserId] = useState<string | null>(null);
 
   useEffect(() => {
@@ -347,6 +344,57 @@ export default function SessionsPage() {
       sub.subscription.unsubscribe();
     };
   }, []);
+
+  // --- org id (only AFTER auth is ready) ---
+  const [orgId, setOrgId] = useState<string | null>(null);
+  const [orgLoading, setOrgLoading] = useState(true);
+
+  useEffect(() => {
+    let alive = true;
+
+    // ✅ tant qu'on n'a pas un userId, on reste en "loading"
+    if (!userId) {
+      setOrgId(null);
+      setOrgLoading(true);
+      return;
+    }
+
+    (async () => {
+      setOrgLoading(true);
+      const { data, error } = await supabase.rpc("current_org_id");
+      if (!alive) return;
+
+      if (error) {
+        setOrgId(null);
+        setOrgLoading(false);
+        return;
+      }
+
+      setOrgId((data as string) ?? null);
+      setOrgLoading(false);
+    })();
+
+    return () => {
+      alive = false;
+    };
+  }, [userId]);
+
+  const isOF = !orgLoading && !!orgId;
+
+  // (garde tes perms pour edit/delete si tu veux, mais create = OF only)
+  const hasPerm = (perm: string) => {
+    if (isLoading) return false;
+    if (Array.isArray(allowedPages)) return allowedPages.includes(perm);
+    if (typeof allowedPages?.includes === "function") return allowedPages.includes(perm);
+    return false;
+  };
+
+  // ✅ RÈGLE DEMANDÉE : bouton création UNIQUEMENT si OF actif (pas de perms)
+  const canCreate = isOF;
+
+  // edit/delete restent sur les permissions (comme avant)
+  const canEdit = hasPerm("sessions:edit");
+  const canDelete = hasPerm("sessions:delete");
 
   const [rows, setRows] = useState<SessionRow[]>([]);
   const [clients, setClients] = useState<ClientRow[]>([]);
@@ -443,7 +491,6 @@ export default function SessionsPage() {
 
       if (key === "delivery_type") {
         const dt = String(value ?? "") as DeliveryType;
-        // si on quitte "sous_traitee" => on vide le sous-traitant
         if (dt !== "sous_traitee") {
           return { ...p, delivery_type: dt, subcontractor_user_id: "" } as any;
         }
@@ -472,7 +519,6 @@ export default function SessionsPage() {
     });
   }
 
-  // Hack: masque un ancien bandeau Sessions/Colonnes
   useEffect(() => {
     const root = document.getElementById("sessions-new-ui-root");
     if (!root) return;
@@ -587,20 +633,18 @@ export default function SessionsPage() {
 
     const { data, error } = await supabase.rpc("get_my_visible_sessions");
 
-  if (error) {
-  if ((error.message || "").toLowerCase().includes("forbidden")) {
-    setPageError(null);
-    setRows([]);
-    setLearnerCountBySession({});
-    return;
-  }
-  setPageError(error.message);
-  setRows([]);
-  setLearnerCountBySession({});
-  return;
-}
-
-
+    if (error) {
+      if ((error.message || "").toLowerCase().includes("forbidden")) {
+        setPageError(null);
+        setRows([]);
+        setLearnerCountBySession({});
+        return;
+      }
+      setPageError(error.message);
+      setRows([]);
+      setLearnerCountBySession({});
+      return;
+    }
 
     const raw = (data ?? []) as SessionRow[];
 
@@ -608,11 +652,10 @@ export default function SessionsPage() {
     const prodMap = new Map(products.map((p) => [p.id, p.name]));
 
     const enriched = raw.map((r) => ({
-  ...r,
-  client_name: (r as any).client_name ?? (r.client_id ? clientMap.get(r.client_id) ?? "—" : "—"),
-  product_name: (r as any).product_name ?? (r.product_id ? prodMap.get(r.product_id) ?? "—" : "—"),
-}));
-
+      ...r,
+      client_name: (r as any).client_name ?? (r.client_id ? clientMap.get(r.client_id) ?? "—" : "—"),
+      product_name: (r as any).product_name ?? (r.product_id ? prodMap.get(r.product_id) ?? "—" : "—"),
+    }));
 
     setRows(enriched);
 
@@ -723,7 +766,6 @@ export default function SessionsPage() {
     setFormError(null);
   }
 
-  // charge la liste au moment où on ouvre une modale + type = sous_traitee
   useEffect(() => {
     const need = (openCreate || openEdit) && form.delivery_type === "sous_traitee";
     if (!need) return;
@@ -750,7 +792,7 @@ export default function SessionsPage() {
 
   async function saveCreate() {
     if (!canCreate) {
-      setFormError("Accès refusé.");
+      setFormError("Tu dois être activé sur un organisme (OF) pour créer une session.");
       return;
     }
     if (saving) return;
@@ -851,39 +893,35 @@ export default function SessionsPage() {
     }
   }
 
-async function deleteRow(id: string) {
-  if (!canDelete) return;
+  async function deleteRow(id: string) {
+    if (!canDelete) return;
 
-  const ok = window.confirm("Supprimer cette session ?");
-  if (!ok) return;
+    const ok = window.confirm("Supprimer cette session ?");
+    if (!ok) return;
 
-  setPageError(null);
+    setPageError(null);
 
-  const { data, error } = await supabase.rpc("delete_session", { p_session_id: id });
+    const { data, error } = await supabase.rpc("delete_session", { p_session_id: id });
 
-  if (error) {
-    setPageError(error.message);
-    return;
+    if (error) {
+      setPageError(error.message);
+      return;
+    }
+
+    if (data !== true) {
+      setPageError("Suppression impossible.");
+      return;
+    }
+
+    setRows((prev) => prev.filter((r) => r.id !== id));
+    setLearnerCountBySession((prev) => {
+      const next = { ...prev };
+      delete next[id];
+      return next;
+    });
+
+    await fetchSessions();
   }
-
-  if (data !== true) {
-    setPageError("Suppression impossible.");
-    return;
-  }
-
-  // UX: disparition immédiate
-  setRows((prev) => prev.filter((r) => r.id !== id));
-  setLearnerCountBySession((prev) => {
-    const next = { ...prev };
-    delete next[id];
-    return next;
-  });
-
-  // sync
-  await fetchSessions();
-}
-
-
 
   async function loadLearnersForSession(sessionId: string) {
     setViewLearners([]);
@@ -892,8 +930,8 @@ async function deleteRow(id: string) {
 
     try {
       const org = await supabase.rpc("current_org_id");
-      const orgId = org.data as string | null;
-      if (!orgId) {
+      const orgId2 = org.data as string | null;
+      if (!orgId2) {
         setViewLearnersError("Organisation introuvable.");
         return;
       }
@@ -901,7 +939,7 @@ async function deleteRow(id: string) {
       const { data: links, error: linkErr } = await supabase
         .from("apprenant_sessions")
         .select("apprenant_id")
-        .eq("org_id", orgId)
+        .eq("org_id", orgId2)
         .eq("session_id", sessionId);
 
       if (linkErr) {
@@ -919,7 +957,7 @@ async function deleteRow(id: string) {
       const { data: apprenants, error: apprErr } = await supabase
         .from("apprenants")
         .select("id,last_name,first_name,email")
-        .eq("org_id", orgId)
+        .eq("org_id", orgId2)
         .in("id", apprenantIds)
         .order("last_name", { ascending: true });
 
@@ -1231,7 +1269,7 @@ async function deleteRow(id: string) {
         {pageError && !openCreate && !openEdit && !openView && <div style={{ padding: 12, color: "rgb(220,38,38)", fontWeight: 900 }}>{pageError}</div>}
       </div>
 
-      {/* ===================== MODALE VIEW SESSION ===================== */}
+      {/* VIEW */}
       {openView && selected && (
         <div style={overlayStyle} onMouseDown={closeViewModal}>
           <div style={modalStyle} onMouseDown={(e) => e.stopPropagation()}>

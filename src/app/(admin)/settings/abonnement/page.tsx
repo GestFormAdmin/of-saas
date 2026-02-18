@@ -53,7 +53,6 @@ function normalizePlanCode(code: any): BillingPlanCode {
   if (c === "scale") return "scale";
   if (c === "enterprise") return "enterprise";
   if (c === "custom") return "custom";
-  // tolérances (si jamais)
   if (c === "scale+") return "enterprise";
   return "free";
 }
@@ -62,8 +61,6 @@ export default function BillingPage() {
   const [billing, setBilling] = useState<BillingPlan | null>(null);
   const [loading, setLoading] = useState(true);
   const [orgId, setOrgId] = useState<string | null>(null);
-
-  // ✅ UX : loader uniquement sur le plan cliqué
   const [loadingPlan, setLoadingPlan] = useState<BillingPlanCode | null>(null);
 
   const plans = useMemo<UiPlan[]>(
@@ -147,7 +144,6 @@ export default function BillingPage() {
       return;
     }
 
-    // org courante
     const { data: curOrg, error: curOrgErr } = await supabase
       .from("user_current_orgs")
       .select("org_id, updated_at")
@@ -168,7 +164,6 @@ export default function BillingPage() {
       return;
     }
 
-    // ✅ plan actif via RPC
     const { data: planByOrg, error: planByOrgErr } = await supabase.rpc(
       "get_org_active_plan",
       { p_org_id: oid }
@@ -182,7 +177,6 @@ export default function BillingPage() {
         stripe_subscription_id: planByOrg[0].stripe_subscription_id ?? null,
       });
     } else {
-      // fallback safe
       setBilling({
         org_id: oid,
         plan_code: "free",
@@ -201,7 +195,7 @@ export default function BillingPage() {
 
       await loadBilling();
 
-      // ✅ retour Stripe: refresh + reload (anti-cache)
+      // retour Stripe: refresh + reload
       if (success === "1") {
         setTimeout(async () => {
           await loadBilling();
@@ -223,6 +217,7 @@ export default function BillingPage() {
 
   const subscribe = async (plan: BillingPlanCode) => {
     if (!orgId) return alert("orgId manquant");
+
     const token = await getBearerToken();
     if (!token) return alert("Session manquante (reconnecte-toi).");
 
@@ -233,7 +228,7 @@ export default function BillingPage() {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
-          Authorization: `Bearer ${token}`, // ✅ IMPORTANT
+          Authorization: `Bearer ${token}`,
         },
         body: JSON.stringify({
           plan,
@@ -250,30 +245,6 @@ export default function BillingPage() {
     } finally {
       setLoadingPlan(null);
     }
-  };
-
-  const openPortal = async () => {
-    if (!orgId) return alert("orgId manquant");
-    const token = await getBearerToken();
-    if (!token) return alert("Session manquante (reconnecte-toi).");
-
-    const res = await fetch("/api/billing/portal", {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        Authorization: `Bearer ${token}`, // ✅ IMPORTANT
-      },
-      body: JSON.stringify({
-        org_id: orgId,
-        return_path: "/settings/abonnement",
-      }),
-    });
-
-    const data = await res.json().catch(() => null);
-    if (!res.ok) return alert(data?.error || `API error ${res.status}`);
-    if (!data?.url) return alert(data?.error || "no portal url");
-
-    window.location.href = data.url;
   };
 
   return (
@@ -299,21 +270,6 @@ export default function BillingPage() {
           >
             Rafraîchir
           </button>
-
-          {/* ✅ optionnel: gérer l’abonnement (portal) */}
-          <button
-            className="btn btn-primary"
-            type="button"
-            disabled={loading || !billing?.stripe_subscription_id}
-            onClick={openPortal}
-            title={
-              billing?.stripe_subscription_id
-                ? "Gérer l’abonnement (Stripe)"
-                : "Aucun abonnement actif à gérer"
-            }
-          >
-            Gérer
-          </button>
         </div>
       </div>
 
@@ -327,10 +283,6 @@ export default function BillingPage() {
             const isLower = pIndex < currentIndex;
             const isHigher = pIndex > currentIndex;
             const isPlanLoading = loadingPlan === p.key;
-
-            // ✅ désactivation "hard" des plans inférieurs
-            const lowerDisabledClass =
-              "opacity-60 pointer-events-none aria-disabled:true";
 
             return (
               <div
@@ -374,32 +326,18 @@ export default function BillingPage() {
                 </div>
 
                 <div className="mt-auto pt-4">
-                  {/* ✅ RÈGLES BOUTONS (restauration) */}
                   {isCurrent ? (
-                    <>
-                      <button
-                        className="btn btn-secondary w-full"
-                        type="button"
-                        disabled
-                        aria-disabled="true"
-                      >
-                        Plan actuel
-                      </button>
-
-                      {billing?.stripe_subscription_id ? (
-                        <button
-                          className="btn btn-primary w-full mt-2"
-                          type="button"
-                          disabled={loading}
-                          onClick={openPortal}
-                        >
-                          Gérer l’abonnement
-                        </button>
-                      ) : null}
-                    </>
+                    <button
+                      className="btn btn-secondary w-full"
+                      type="button"
+                      disabled
+                      aria-disabled="true"
+                    >
+                      Plan actuel
+                    </button>
                   ) : isLower ? (
                     <button
-                      className={`btn btn-secondary w-full ${lowerDisabledClass}`}
+                      className="btn btn-secondary w-full opacity-60 pointer-events-none"
                       type="button"
                       disabled
                       aria-disabled="true"
