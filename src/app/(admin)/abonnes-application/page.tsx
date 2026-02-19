@@ -39,36 +39,12 @@ export default async function Page() {
     <div className="space-y-6">
       <PageHeader title="Abonnés application" subtitle="TalentUpFP — utilisateurs, abonnements & paiements" />
 
-      <Card>
-  <div className="p-4 space-y-4">
-
-    <div className="text-sm font-medium text-slate-700">
-      Abonnés application
-    </div>
-
-    {kpiError ? (
-      <div className="text-sm text-red-600">
-        Erreur de chargement
-      </div>
-    ) : (
-      <div>
-        {/* contenu existant */}
+ <Card>
+  <div className="p-4">
+    {subsError && (
+      <div className="rounded-xl border border-red-200 bg-red-50 p-4 text-sm text-red-700">
+        {subsError.message}
       </div>
     )}
-
   </div>
 </Card>
-
-
-      <Card className="p-4">
-        {subsError ? (
-          <div className="rounded-xl border border-red-200 bg-red-50 p-3 text-sm text-red-700">
-            {subsError.message}
-          </div>
-        ) : (
-          <SubscribersApplicationTableClient rows={rows} />
-        )}
-      </Card>
-    </div>
-  );
-}
