@@ -39,12 +39,12 @@ export default async function Page() {
     <div className="space-y-6">
       <PageHeader title="Abonnés application" subtitle="TalentUpFP — utilisateurs, abonnements & paiements" />
 
- <Card>
+<Card>
   <div className="p-4">
-    {subsError && (
-      <div className="rounded-xl border border-red-200 bg-red-50 p-4 text-sm text-red-700">
+    {subsError ? (
+      <div className="rounded-xl border border-red-200 bg-red-50 p-3 text-sm text-red-700">
         {subsError.message}
       </div>
-    )}
+    ) : null}
   </div>
 </Card>
