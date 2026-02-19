@@ -42,55 +42,23 @@ export default async function Page() {
       <Card>
   <div className="p-4 space-y-4">
 
-        <div className="text-sm font-medium text-slate-900">KPI facturation</div>
+    <div className="text-sm font-medium text-slate-700">
+      Abonnés application
+    </div>
 
-        {kpiError ? (
-          <div className="rounded-xl border border-red-200 bg-red-50 p-3 text-sm text-red-700">
-            {kpiError.message}
-          </div>
-        ) : (
-          <div className="overflow-x-auto rounded-2xl border bg-white">
-            <table className="min-w-full text-sm">
-              <thead className="bg-slate-50">
-                <tr className="[&>th]:px-4 [&>th]:py-3 text-left [&>th]:font-medium [&>th]:text-slate-700">
-                  <th>Organisation</th>
-                  <th>Année</th>
-                  <th>Apprenants N-1</th>
-                  <th>Plan (réel)</th>
-                  <th>Prix € / mois</th>
-                </tr>
-              </thead>
-              <tbody className="divide-y">
-                {kpis.length === 0 ? (
-                  <tr>
-                    <td colSpan={5} className="px-4 py-8 text-slate-500">
-                      Aucune donnée.
-                    </td>
-                  </tr>
-                ) : (
-                  kpis.map((r) => (
-                    <tr key={`${r.org_id}-${r.billing_year}`} className="[&>td]:px-4 [&>td]:py-3">
-                      <td className="font-medium text-slate-900">{r.org_name}</td>
-                      <td className="text-slate-700">{r.billing_year}</td>
-                      <td className="text-slate-900">{r.apprenants_n_1}</td>
-                      <td className="text-slate-900">{planLabel(r.plan_code)}</td>
-                      <td className="text-slate-900">
-                        {String(r.plan_code).toLowerCase() === 'custom'
-                          ? 'Sur devis'
-                          : String(r.plan_code).toLowerCase() === 'free'
-                            ? '0 €'
-                            : r.price_eur == null
-                              ? '—'
-                              : `${r.price_eur} €`}
-                      </td>
-                    </tr>
-                  ))
-                )}
-              </tbody>
-            </table>
-          </div>
-        )}
-      </Card>
+    {kpiError ? (
+      <div className="text-sm text-red-600">
+        Erreur de chargement
+      </div>
+    ) : (
+      <div>
+        {/* contenu existant */}
+      </div>
+    )}
+
+  </div>
+</Card>
+
 
       <Card className="p-4">
         {subsError ? (
