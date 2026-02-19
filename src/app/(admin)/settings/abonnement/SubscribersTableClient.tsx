@@ -69,10 +69,10 @@ export default function SubscribersTableClient({ rows }: { rows: SubscriberRow[]
                     <Button size="sm" onClick={() => console.log('visualiser', r.user_id)}>
                       Visualiser
                     </Button>
-                    <Button size="sm" variant="secondary" onClick={() => console.log('revoquer', r.user_id)}>
+<Button size="sm" variant="outline" onClick={() => console.log("revoquer", r.user_id)}>
                       Révoquer
                     </Button>
-                    <Button size="sm" variant="secondary" onClick={() => console.log('bloquer', r.user_id)}>
+<Button size="sm" variant="outline" onClick={() => console.log("bloquer", r.user_id)}>
                       Bloquer
                     </Button>
                     <Button size="sm" variant="secondary" onClick={() => console.log('abonnement', r.user_id)}>
