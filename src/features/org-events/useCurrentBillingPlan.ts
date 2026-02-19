@@ -1,9 +1,6 @@
-// ACTION 8 — Badge "Plan actuel"
-// src/features/org-events/useCurrentBillingPlan.ts
-
 'use client';
 
-import { useEffect, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { createBrowserClient } from '@/lib/supabase/browser';
 
 export type BillingPlan = {
@@ -16,7 +13,9 @@ export type BillingPlan = {
 };
 
 export function useCurrentBillingPlan() {
-  const supabase = createBrowserClient();
+  // ✅ client stable (évite rerender + deps cassées)
+  const supabase = useMemo(() => createBrowserClient(), []);
+
   const [data, setData] = useState<BillingPlan | null>(null);
   const [loading, setLoading] = useState(true);
 
@@ -25,13 +24,15 @@ export function useCurrentBillingPlan() {
 
     (async () => {
       const { data, error } = await supabase.rpc('get_my_current_org_billing_plan');
+
       if (!alive) return;
 
-      if (!error && data && data[0]) {
+      if (!error && Array.isArray(data) && data[0]) {
         setData(data[0] as BillingPlan);
       } else {
         setData(null);
       }
+
       setLoading(false);
     })();
 

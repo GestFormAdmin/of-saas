@@ -1,6 +1,6 @@
 import React from "react";
 import { redirect } from "next/navigation";
-import { supabase } from "@/lib/supabase/server";
+import { createServerClient } from "@/lib/supabase/server";
 
 /**
  * Guard serveur – le backend décide, le front affiche
@@ -9,7 +9,7 @@ export async function RequirePageAccess(props: {
   permission: string;
   children: React.ReactNode;
 }) {
-  const sb = supabase();
+const sb = createServerClient();
 
   const { data, error } = await sb.rpc("get_my_page_permissions");
   if (error) {

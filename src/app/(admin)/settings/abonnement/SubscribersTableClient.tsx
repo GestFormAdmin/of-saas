@@ -1,8 +1,8 @@
 // src/app/(admin)/settings/abonnement/SubscribersTableClient.tsx
-'use client';
+"use client";
 
-import * as React from 'react';
-import { Button } from '@/components/ui/Button';
+import * as React from "react";
+import { Button } from "@/components/ui/Button";
 
 export type SubscriberRow = {
   user_id: string;
@@ -18,13 +18,13 @@ export type SubscriberRow = {
 };
 
 function fmtDate(d: string | null) {
-  if (!d) return '—';
-  return new Intl.DateTimeFormat('fr-FR', { dateStyle: 'medium' }).format(new Date(d));
+  if (!d) return "—";
+  return new Intl.DateTimeFormat("fr-FR", { dateStyle: "medium" }).format(new Date(d));
 }
 
 function fmtMoneyCents(cents: number | null) {
-  if (cents == null) return '—';
-  return new Intl.NumberFormat('fr-FR', { style: 'currency', currency: 'EUR' }).format(cents / 100);
+  if (cents == null) return "—";
+  return new Intl.NumberFormat("fr-FR", { style: "currency", currency: "EUR" }).format(cents / 100);
 }
 
 export default function SubscribersTableClient({ rows }: { rows: SubscriberRow[] }) {
@@ -55,10 +55,10 @@ export default function SubscribersTableClient({ rows }: { rows: SubscriberRow[]
           ) : (
             rows.map((r) => (
               <tr key={r.user_id} className="[&>td]:px-4 [&>td]:py-3">
-                <td className="font-medium text-slate-900">{r.last_name ?? '—'}</td>
-                <td className="text-slate-900">{r.first_name ?? '—'}</td>
-                <td className="text-slate-700">{r.org_name ?? '—'}</td>
-                <td className="text-slate-700">{r.email ?? '—'}</td>
+                <td className="font-medium text-slate-900">{r.last_name ?? "—"}</td>
+                <td className="text-slate-900">{r.first_name ?? "—"}</td>
+                <td className="text-slate-700">{r.org_name ?? "—"}</td>
+                <td className="text-slate-700">{r.email ?? "—"}</td>
                 <td className="text-slate-700">{fmtDate(r.subscribed_at)}</td>
                 <td className="text-slate-900">{fmtMoneyCents(r.amount_cents)}</td>
                 <td className="text-slate-700">{fmtDate(r.last_charge_at)}</td>
@@ -66,16 +66,20 @@ export default function SubscribersTableClient({ rows }: { rows: SubscriberRow[]
 
                 <td className="whitespace-nowrap text-right">
                   <div className="inline-flex gap-2">
-                    <Button size="sm" onClick={() => console.log('visualiser', r.user_id)}>
+                    <Button size="sm" onClick={() => console.log("visualiser", r.user_id)}>
                       Visualiser
                     </Button>
-<Button size="sm" variant="outline" onClick={() => console.log("revoquer", r.user_id)}>
+
+                    {/* variants "outline"/"secondary" non supportés par ton Button => retirés */}
+                    <Button size="sm" onClick={() => console.log("revoquer", r.user_id)}>
                       Révoquer
                     </Button>
-<Button size="sm" variant="outline" onClick={() => console.log("bloquer", r.user_id)}>
+
+                    <Button size="sm" onClick={() => console.log("bloquer", r.user_id)}>
                       Bloquer
                     </Button>
-                    <Button size="sm" variant="secondary" onClick={() => console.log('abonnement', r.user_id)}>
+
+                    <Button size="sm" onClick={() => console.log("abonnement", r.user_id)}>
                       Abonnement
                     </Button>
                   </div>

@@ -1,5 +1,3 @@
-
-
 import { NextResponse } from "next/server";
 import Stripe from "stripe";
 import { createClient } from "@supabase/supabase-js";
@@ -7,10 +5,7 @@ import { createClient } from "@supabase/supabase-js";
 export const runtime = "nodejs";
 
 const STRIPE_SECRET_KEY = process.env.STRIPE_SECRET_KEY;
-const STRIPE_WEBHOOK_SECRET = process.env.STRIPE_WEBHOOK_SECRET;
-
 if (!STRIPE_SECRET_KEY) throw new Error("Missing env: STRIPE_SECRET_KEY");
-if (!STRIPE_WEBHOOK_SECRET) throw new Error("Missing env: STRIPE_WEBHOOK_SECRET");
 
 const stripe = new Stripe(STRIPE_SECRET_KEY, {
   apiVersion: "2025-07-30.basil" as any,
@@ -26,19 +21,23 @@ function supabaseAdmin() {
 
 type PlanCode = "free" | "pro" | "business" | "scale" | "enterprise" | "custom";
 
-// ✅ mapping price_id -> plan_code
 function planFromPriceId(priceId: string | null): PlanCode {
   if (!priceId) return "free";
 
-  const pro = process.env.STRIPE_PRICE_PRO ?? "";
-  const business = process.env.STRIPE_PRICE_BUSINESS ?? "";
-  const scale = process.env.STRIPE_PRICE_SCALE ?? "";
-  const enterprise = process.env.STRIPE_PRICE_ENTERPRISE ?? "";
+  const STRIPE_PRICE_PRO = process.env.STRIPE_PRICE_PRO;
+  const STRIPE_PRICE_BUSINESS = process.env.STRIPE_PRICE_BUSINESS;
+  const STRIPE_PRICE_SCALE = process.env.STRIPE_PRICE_SCALE;
+  const STRIPE_PRICE_ENTERPRISE = process.env.STRIPE_PRICE_ENTERPRISE;
 
-  if (priceId === pro) return "pro";
-  if (priceId === business) return "business";
-  if (priceId === scale) return "scale";
-  if (priceId === enterprise) return "enterprise";
+  if (!STRIPE_PRICE_PRO) throw new Error("Missing env: STRIPE_PRICE_PRO");
+  if (!STRIPE_PRICE_BUSINESS) throw new Error("Missing env: STRIPE_PRICE_BUSINESS");
+  if (!STRIPE_PRICE_SCALE) throw new Error("Missing env: STRIPE_PRICE_SCALE");
+  if (!STRIPE_PRICE_ENTERPRISE) throw new Error("Missing env: STRIPE_PRICE_ENTERPRISE");
+
+  if (priceId === STRIPE_PRICE_PRO) return "pro";
+  if (priceId === STRIPE_PRICE_BUSINESS) return "business";
+  if (priceId === STRIPE_PRICE_SCALE) return "scale";
+  if (priceId === STRIPE_PRICE_ENTERPRISE) return "enterprise";
   return "free";
 }
 
@@ -46,11 +45,16 @@ export async function POST(req: Request) {
   const sig = req.headers.get("stripe-signature");
   if (!sig) return NextResponse.json({ error: "Missing stripe-signature" }, { status: 400 });
 
+  const webhookSecret = process.env.STRIPE_WEBHOOK_SECRET;
+  if (!webhookSecret) {
+    return NextResponse.json({ error: "Missing env: STRIPE_WEBHOOK_SECRET" }, { status: 500 });
+  }
+
   const rawBody = await req.text();
 
   let event: Stripe.Event;
   try {
-    event = stripe.webhooks.constructEvent(rawBody, sig, STRIPE_WEBHOOK_SECRET);
+    event = stripe.webhooks.constructEvent(rawBody, sig, webhookSecret);
   } catch (e: any) {
     return NextResponse.json({ error: `Invalid signature: ${e.message}` }, { status: 400 });
   }
@@ -63,20 +67,21 @@ export async function POST(req: Request) {
       event.type === "customer.subscription.updated" ||
       event.type === "customer.subscription.deleted"
     ) {
-      const sub = event.data.object as Stripe.Subscription;
+      const sub = event.data.object as Stripe.Subscription as any;
 
       const orgId = (sub.metadata?.org_id ?? null) as string | null;
       if (!orgId) {
         return NextResponse.json({ received: true, ignored: "missing org_id metadata" });
       }
 
-      const status = sub.status;
-      const priceId = sub.items?.data?.[0]?.price?.id ?? null;
+      const status = String(sub.status ?? "");
+      const priceId = (sub.items?.data?.[0]?.price?.id ?? null) as string | null;
       const planCode = planFromPriceId(priceId);
 
-      const currentPeriodEnd = sub.current_period_end
-        ? new Date(sub.current_period_end * 1000).toISOString()
-        : null;
+      const currentPeriodEnd =
+        sub.current_period_end != null
+          ? new Date(Number(sub.current_period_end) * 1000).toISOString()
+          : null;
 
       const cancelAtPeriodEnd = Boolean(sub.cancel_at_period_end);
 
@@ -86,7 +91,7 @@ export async function POST(req: Request) {
           {
             org_id: orgId,
             stripe_customer_id: String(sub.customer),
-            stripe_subscription_id: sub.id,
+            stripe_subscription_id: String(sub.id),
             stripe_price_id: priceId,
             plan_code: planCode,
             status,

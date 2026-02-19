@@ -107,7 +107,7 @@ Date : ${date}
   const pdf = await makePdf(text);
   const filename = `rgpd-document-${date}.pdf`;
 
-  return new NextResponse(pdf, {
+return new NextResponse(new Uint8Array(pdf), {
     status: 200,
     headers: {
       "Content-Type": "application/pdf",
