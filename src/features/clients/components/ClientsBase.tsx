@@ -3,16 +3,14 @@
 import React, { useEffect, useMemo, useState } from "react";
 import { supabase } from "@/lib/supabaseClient";
 import ClientRowActions from "./ClientRowActions";
-
+import { usePermissions } from "@/features/auth/PermissionsProviderClient";
 import { PageHeader } from "@/components/ui/PageHeader";
 import { Button } from "@/components/ui/Button";
 import { Card, CardBody } from "@/components/ui/Card";
 import { EmptyState } from "@/components/ui/EmptyState";
 
 // ✅ AJOUT (guard)
-import { RequirePageAccess } from "@/features/auth/RequirePageAccess";
-import { usePermissions } from "@/features/auth/PermissionsProvider";
-
+import RequirePageAccessClient from "@/features/auth/RequirePageAccessClient";
 /* ================== STYLES (table) ================== */
 const tableStyle: React.CSSProperties = {
   width: "100%",
@@ -221,8 +219,7 @@ export default function ClientsPageClient() {
   const currentYear = useMemo(() => new Date().getFullYear(), []);
 
   // ✅ AJOUT : permissions depuis le provider
-  const permissions = usePermissions();
-
+const { allowedPages, isLoading } = usePermissions();
   const [loading, setLoading] = useState(true);
   const [orgId, setOrgId] = useState<string | null>(null);
   const [clients, setClients] = useState<Client[]>([]);
@@ -677,8 +674,7 @@ export default function ClientsPageClient() {
 
   // ✅ IMPORTANT : wrapper guard
   return (
-<RequirePageAccess pageKey="clients">
-      <div className="space-y-6">
+<RequirePageAccessClient pageKey="clients" fallback={null}>      <div className="space-y-6">
         <PageHeader
           title="Clients"
           subtitle="Gestion des clients" />
@@ -1155,6 +1151,6 @@ export default function ClientsPageClient() {
           </div>
         </ModalShell>
       </div>
-    </RequirePageAccess>
+</RequirePageAccessClient>
   );
 }

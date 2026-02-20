@@ -5,7 +5,7 @@ import { createServerClient } from "@/lib/supabase/server";
 /**
  * Guard serveur – le backend décide, le front affiche
  */
-export async function RequirePageAccess(props: {
+export async function RequirePageAccessClient(props: {
   permission: string;
   children: React.ReactNode;
 }) {

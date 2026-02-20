@@ -1,12 +1,10 @@
 "use client";
 
 import DepensesView from "@/features/depenses/components/DepensesView";
-import { RequirePageAccess } from "@/features/auth/RequirePageAccess";
-
+import RequirePageAccessClient from "@/features/auth/RequirePageAccessClient";
 export default function DepensesPage() {
   return (
-    <RequirePageAccess pageKey="depenses" fallback={null}>
-      <DepensesView />
-    </RequirePageAccess>
+<RequirePageAccessClient pageKey="depenses" fallback={null}>      <DepensesView />
+</RequirePageAccessClient>
   );
 }

@@ -4,7 +4,7 @@ import * as React from "react";
 import { useRouter } from "next/navigation";
 import { usePermissions } from "./PermissionsProviderClient";
 
-export function RequirePageAccess({
+export default function RequirePageAccessClient({
   pageKey,
   children,
   fallback = null,
@@ -19,16 +19,13 @@ export function RequirePageAccess({
   React.useEffect(() => {
     if (isLoading) return;
 
-    // Si aucune permission chargée, on renvoie vers /settings/acces (page centrale)
-    if (!allowedPages?.length) {
+    if (!Array.isArray(allowedPages) || allowedPages.length === 0) {
       router.replace("/settings/acces");
       return;
     }
 
-    // Si la page n'est pas autorisée, même redirection
     if (!allowedPages.includes(pageKey)) {
       router.replace("/settings/acces");
-      return;
     }
   }, [isLoading, allowedPages, pageKey, router]);
 

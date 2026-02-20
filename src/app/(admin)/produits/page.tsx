@@ -1,12 +1,11 @@
 "use client";
 
 import ProduitsView from "@/features/produits/components/ProduitsView";
-import { RequirePageAccess } from "@/features/auth/RequirePageAccess";
-
+import RequirePageAccessClient from "@/features/auth/RequirePageAccessClient";
 export default function ProduitsPage() {
   return (
-    <RequirePageAccess pageKey="produits" fallback={null}>
-      <ProduitsView />
-    </RequirePageAccess>
+<RequirePageAccessClient pageKey="produits" fallback={null}>
+        <ProduitsView />
+</RequirePageAccessClient>
   );
 }

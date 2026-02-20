@@ -1,15 +1,21 @@
 "use client";
 
 import Link from "next/link";
-import { RequirePageAccess } from "@/features/auth/RequirePageAccess";
+import RequirePageAccessClient from "@/features/auth/RequirePageAccessClient";
 
 export default function Page() {
   return (
-    <RequirePageAccess pageKey="dashboard" fallback={null}>
+    <RequirePageAccessClient pageKey="dashboard" fallback={null}>
       <div style={{ display: "grid", gap: 16 }}>
         <h1 style={{ fontSize: 22, fontWeight: 700, margin: 0 }}>Accueil</h1>
 
-        <div style={{ display: "grid", gridTemplateColumns: "repeat(3, minmax(0, 1fr))", gap: 16 }}>
+        <div
+          style={{
+            display: "grid",
+            gridTemplateColumns: "repeat(3, minmax(0, 1fr))",
+            gap: 16,
+          }}
+        >
           <Link
             href="/settings/organisme"
             style={{
@@ -23,8 +29,12 @@ export default function Page() {
             }}
           >
             <div style={{ fontSize: 14, opacity: 0.9 }}>Gérer</div>
-            <div style={{ fontSize: 18, fontWeight: 700, marginTop: 6 }}>Mon compte</div>
-            <div style={{ fontSize: 13, opacity: 0.9, marginTop: 8 }}>Profil, organisme, infos</div>
+            <div style={{ fontSize: 18, fontWeight: 700, marginTop: 6 }}>
+              Mon compte
+            </div>
+            <div style={{ fontSize: 13, opacity: 0.9, marginTop: 8 }}>
+              Profil, organisme, infos
+            </div>
           </Link>
 
           <Link
@@ -40,8 +50,12 @@ export default function Page() {
             }}
           >
             <div style={{ fontSize: 14, opacity: 0.9 }}>Gérer</div>
-            <div style={{ fontSize: 18, fontWeight: 700, marginTop: 6 }}>Mes accès</div>
-            <div style={{ fontSize: 13, opacity: 0.9, marginTop: 8 }}>Organisations, rôles, switch</div>
+            <div style={{ fontSize: 18, fontWeight: 700, marginTop: 6 }}>
+              Mes accès
+            </div>
+            <div style={{ fontSize: 13, opacity: 0.9, marginTop: 8 }}>
+              Organisations, rôles, switch
+            </div>
           </Link>
 
           <Link
@@ -57,11 +71,15 @@ export default function Page() {
             }}
           >
             <div style={{ fontSize: 14, opacity: 0.9 }}>Gérer</div>
-            <div style={{ fontSize: 18, fontWeight: 700, marginTop: 6 }}>Abonnement</div>
-            <div style={{ fontSize: 13, opacity: 0.9, marginTop: 8 }}>Plan, facturation (plus tard)</div>
+            <div style={{ fontSize: 18, fontWeight: 700, marginTop: 6 }}>
+              Abonnement
+            </div>
+            <div style={{ fontSize: 13, opacity: 0.9, marginTop: 8 }}>
+              Plan, facturation (plus tard)
+            </div>
           </Link>
         </div>
       </div>
-    </RequirePageAccess>
+    </RequirePageAccessClient>
   );
 }

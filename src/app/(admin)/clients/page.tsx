@@ -1,12 +1,12 @@
 "use client";
 
-import { RequirePageAccess } from "@/features/auth/RequirePageAccess";
+import RequirePageAccessClient from "@/features/auth/RequirePageAccessClient";
 import ClientsPageClient from "./ClientsPageClient";
 
 export default function ClientsPage() {
   return (
-    <RequirePageAccess pageKey="clients" fallback={null}>
+    <RequirePageAccessClient pageKey="clients">
       <ClientsPageClient />
-    </RequirePageAccess>
+    </RequirePageAccessClient>
   );
 }
