@@ -1,3 +1,5 @@
+// ✅ src/app/api/export/route.ts  (REMPLACE TOUT LE FICHIER PAR ÇA)
+
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
@@ -26,15 +28,16 @@ function createSupabaseServer(req: NextRequest) {
   });
 }
 
-function csvEscape(value: any) {
+function csvEscape(value: unknown) {
   if (value === null || value === undefined) return "";
   const s = String(value);
   if (/[",\n\r]/.test(s)) return `"${s.replace(/"/g, '""')}"`;
   return s;
 }
 
-function toCsv(rows: any[]) {
+function toCsv(rows: Array<Record<string, unknown>>) {
   if (!rows || rows.length === 0) return "";
+
   const headers = Array.from(
     rows.reduce((set, r) => {
       Object.keys(r || {}).forEach((k) => set.add(k));
@@ -44,8 +47,9 @@ function toCsv(rows: any[]) {
 
   const lines = [
     headers.join(","),
-    ...rows.map((r) => headers.map((h) => csvEscape(r?.[h])).join(",")),
+    ...rows.map((r) => headers.map((h) => csvEscape((r ?? {})[h])).join(",")),
   ];
+
   return lines.join("\n");
 }
 
@@ -90,7 +94,7 @@ async function fetchTable(
   userId: string,
   orgId: string,
   filter?: { column: string; by: "org_id" | "user_id" | "none" }
-) {
+): Promise<Array<Record<string, unknown>> | { __error: string }> {
   let q = supabase.from(table).select("*");
 
   if (filter?.by === "user_id") {
@@ -101,7 +105,9 @@ async function fetchTable(
 
   const { data, error } = await q;
   if (error) return { __error: error.message };
-  return data || [];
+
+  const arr = (data || []) as Array<Record<string, unknown>>;
+  return arr;
 }
 
 export async function GET(req: NextRequest) {
@@ -112,12 +118,12 @@ export async function GET(req: NextRequest) {
     const supabase = createSupabaseServer(req);
     const { userId, orgId } = await getUserAndCurrentOrgId(supabase);
 
-    const payload: Record<string, any[] | { __error: string }> = {};
+    const payload: Record<string, Array<Record<string, unknown>> | { __error: string }> = {};
     for (const spec of EXPORT_SPEC) {
       payload[spec.name] = await fetchTable(supabase, spec.name, userId, orgId, spec.filter);
     }
 
-    const errors: any[] = [];
+    const errors: Array<Record<string, unknown>> = [];
     for (const [table, rows] of Object.entries(payload)) {
       if ((rows as any)?.__error) {
         errors.push({ table, error: (rows as any).__error });
@@ -150,14 +156,14 @@ export async function GET(req: NextRequest) {
         );
 
         ws.addRow(headers);
-        for (const r of arr) ws.addRow(headers.map((h) => r?.[h] ?? ""));
+        for (const r of arr) ws.addRow(headers.map((h) => (r ?? {})[h] ?? ""));
         ws.getRow(1).font = { bold: true };
       }
 
       if (errors.length) {
         const ws = wb.addWorksheet("_errors");
         ws.addRow(["table", "error"]);
-        errors.forEach((e) => ws.addRow([e.table, e.error]));
+        errors.forEach((e) => ws.addRow([String(e.table ?? ""), String(e.error ?? "")]));
         ws.getRow(1).font = { bold: true };
       }
 
