@@ -22,3 +22,7 @@ pnpm-debug.log*
 .env.local
 .env
 .env.*.local
+
+.env.local
+.env
+.env.*.local
