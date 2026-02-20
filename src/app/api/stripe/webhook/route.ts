@@ -4,9 +4,7 @@ import { createClient } from "@supabase/supabase-js";
 
 export const runtime = "nodejs";
 
-const STRIPE_SECRET_KEY = process.env.STRIPE_SECRET_KEY;
-if (!STRIPE_SECRET_KEY) throw new Error("Missing env: STRIPE_SECRET_KEY");
-
+// Stripe init moved inside POST to avoid build-time env access
 const stripe = new Stripe(STRIPE_SECRET_KEY, {
   apiVersion: "2025-07-30.basil" as any,
 });
@@ -43,6 +41,15 @@ function planFromPriceId(priceId: string | null): PlanCode {
 }
 
 export async function POST(req: Request) {
+  const STRIPE_SECRET_KEY = process.env.STRIPE_SECRET_KEY;
+  if (!STRIPE_SECRET_KEY) {
+    return NextResponse.json({ error: "Missing env: STRIPE_SECRET_KEY" }, { status: 500 });
+  }
+
+  const stripe = new Stripe(STRIPE_SECRET_KEY, {
+    apiVersion: "2025-07-30.basil" as any,
+  });
+
   const sig = req.headers.get("stripe-signature");
   if (!sig) return NextResponse.json({ error: "Missing stripe-signature" }, { status: 400 });
 
