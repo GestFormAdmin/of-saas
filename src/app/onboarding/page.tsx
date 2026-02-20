@@ -2,7 +2,7 @@
 
 import { useEffect, useMemo, useState } from "react";
 import { supabase } from "@/lib/supabaseClient";
-import { getCurrentOrgId } from "@/lib/getCurrentOrgId";
+import getCurrentOrgId from "@/lib/getCurrentOrgId";
 
 type ClientRow = {
   id: string;

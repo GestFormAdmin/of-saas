@@ -1,33 +1,29 @@
-// src/components/BlueAuthShell.tsx  ✅ import corrigé
+import * as React from "react";
 
-"use client";
-
-import React from "react";
-import { authUi as uiRaw } from "@/lib/ui";
-
-const ui: any = uiRaw;
-
-export function BlueAuthShell({
-  title,
-  subtitle,
-  children,
-  brandTop,
-}: {
+type Props = {
   title: string;
   subtitle?: string;
+  description?: string;
   children: React.ReactNode;
   brandTop?: React.ReactNode;
-}) {
-  return (
-    <div style={ui.colors.bg}>
-      <div style={ui.card}>
-        <div style={{ display: "grid", justifyItems: "center", gap: 8 }}>
-          {brandTop ? <div style={{ marginBottom: 8 }}>{brandTop}</div> : null}
-          <h1 style={ui.title}>{title}</h1>
-          {subtitle ? <div style={ui.subtitle}>{subtitle}</div> : null}
-        </div>
+};
 
-        <div style={{ marginTop: 18 }}>{children}</div>
+export default function BlueAuthShell({
+  title,
+  subtitle,
+  description,
+  children,
+  brandTop,
+}: Props) {
+  const text = subtitle ?? description;
+
+  return (
+    <div className="min-h-screen flex items-center justify-center bg-blue-50">
+      <div className="w-full max-w-md rounded-xl bg-white p-6 shadow">
+        {brandTop}
+        <h1 className="text-xl font-semibold">{title}</h1>
+        {text ? <p className="mt-1 text-sm text-muted-foreground">{text}</p> : null}
+        <div className="mt-4">{children}</div>
       </div>
     </div>
   );

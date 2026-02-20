@@ -82,7 +82,7 @@ export default function BillingCard({ loading }: { loading: boolean }) {
           </div>
         </div>
 
-        <Button variant="soft" disabled>
+        <Button variant="secondary" disabled>
           Gérer l’abonnement
         </Button>
       </div>
@@ -113,7 +113,7 @@ export default function BillingCard({ loading }: { loading: boolean }) {
                     {(i.amount_cents / 100).toFixed(2)} {i.currency}
                   </div>
                   <Button
-                    variant="soft"
+                    variant="secondary"
                     onClick={() => i.pdf_url && window.open(i.pdf_url, "_blank")}
                     disabled={!i.pdf_url}
                   >

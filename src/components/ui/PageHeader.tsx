@@ -1,26 +1,24 @@
-import React from "react";
-import { ui } from "@/lib/ui/tokens";
+import * as React from "react";
 
-export function PageHeader(props: { title: string; subtitle?: string }) {
+type Props = {
+  title: string;
+  description?: string;
+  subtitle?: string;
+  right?: React.ReactNode;
+};
+
+export function PageHeader({ title, description, subtitle, right }: Props) {
+  const text = description ?? subtitle;
+
   return (
-    <div
-      style={{
-        borderBottom: ui.borderSoft,
-        paddingBottom: 12,
-        marginBottom: 16,
-      }}
-    >
+    <div className="flex items-start justify-between gap-4">
       <div>
-        <div style={{ fontSize: 22, fontWeight: 800, color: ui.colors.text }}>
-          {props.title}
-        </div>
-
-        {props.subtitle ? (
-          <div style={{ marginTop: 6, color: ui.colors.muted, fontSize: 14 }}>
-            {props.subtitle}
-          </div>
-        ) : null}
+        <h1 className="text-xl font-semibold">{title}</h1>
+        {text ? <p className="text-sm text-muted-foreground">{text}</p> : null}
       </div>
+      {right ? <div className="shrink-0">{right}</div> : null}
     </div>
   );
 }
+
+export default PageHeader;

@@ -1,29 +1,21 @@
-import React from "react";
-import { ui } from "@/lib/ui/tokens";
+import * as React from "react";
 
-export function Card(props: { children: React.ReactNode }) {
-  return (
-    <div
-      style={{
-        background: ui.colors.bg,
-        border: ui.border,
-        borderRadius: ui.radius.xl,
-        boxShadow: ui.shadow.md,
-      }}
-    >
-      {props.children}
-    </div>
-  );
+export function Card({ className = "", ...props }: React.HTMLAttributes<HTMLDivElement>) {
+  return <div className={["rounded-lg border bg-background", className].join(" ")} {...props} />;
 }
 
-export function CardHeader(props: { children: React.ReactNode }) {
-  return <div style={{ padding: 16, borderBottom: ui.border }}>{props.children}</div>;
+export function CardHeader({ className = "", ...props }: React.HTMLAttributes<HTMLDivElement>) {
+  return <div className={["p-4 border-b", className].join(" ")} {...props} />;
 }
 
-export function CardBody(props: { children: React.ReactNode }) {
-  return <div style={{ padding: 16 }}>{props.children}</div>;
+export function CardContent({ className = "", ...props }: React.HTMLAttributes<HTMLDivElement>) {
+  return <div className={["p-4", className].join(" ")} {...props} />;
 }
 
-export function CardFooter(props: { children: React.ReactNode }) {
-  return <div style={{ padding: 16, borderTop: ui.border }}>{props.children}</div>;
+export const CardBody = CardContent;
+
+export function CardFooter({ className = "", ...props }: React.HTMLAttributes<HTMLDivElement>) {
+  return <div className={["p-4 border-t", className].join(" ")} {...props} />;
 }
+
+export default Card;

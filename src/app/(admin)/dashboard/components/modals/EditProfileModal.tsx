@@ -55,7 +55,7 @@ export default function EditProfileModal({
         </div>
 
         <div className="flex justify-end gap-2 pt-2">
-          <Button variant="soft" onClick={onClose}>
+          <Button variant="secondary" onClick={onClose}>
             Annuler
           </Button>
           <Button

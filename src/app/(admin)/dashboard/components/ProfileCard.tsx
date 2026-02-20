@@ -70,7 +70,7 @@ export default function ProfileCard({
           </div>
         </div>
 
-        <Button variant="soft" onClick={() => setOpen(true)}>
+        <Button variant="secondary" onClick={() => setOpen(true)}>
           Modifier
         </Button>
       </div>

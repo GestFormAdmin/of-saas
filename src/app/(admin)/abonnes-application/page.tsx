@@ -56,7 +56,7 @@ export default async function Page() {
     <div className="space-y-6">
       <PageHeader
         title="Abonnés application"
-        subtitle="TalentUpFP — utilisateurs, abonnements & paiements"
+        description="TalentUpFP — utilisateurs, abonnements & paiements"
       />
 
       <Card>

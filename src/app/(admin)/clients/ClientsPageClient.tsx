@@ -669,7 +669,7 @@ const { error } = await supabase.from("clients").insert({
     <div className="space-y-6">
       <PageHeader
         title="Clients"
-        subtitle="Gestion des clients" />
+        description="Gestion des clients" />
 
       {error ? (
         <div className="rounded-2xl border border-red-200 bg-red-50 p-4 text-sm">
@@ -718,10 +718,10 @@ const { error } = await supabase.from("clients").insert({
             <div className="text-lg font-semibold">Liste des clients</div>
 
             <div className="relative flex items-center gap-2">
-              <Button variant="soft" onClick={() => void fetchClients()} disabled={loading}>
+              <Button variant="secondary" onClick={() => void fetchClients()} disabled={loading}>
                 Rafraîchir
               </Button>
-              <Button variant="soft" onClick={() => setColsOpen((v) => !v)}>
+              <Button variant="secondary" onClick={() => setColsOpen((v) => !v)}>
                 Colonnes
               </Button>
 
@@ -795,7 +795,7 @@ const { error } = await supabase.from("clients").insert({
     title="Aucun client"
     description="Crée ton premier client pour commencer."
   />
-  <Button variant="primary" onClick={openCreate}>
+  <Button variant="default" onClick={openCreate}>
     Créer un client
   </Button>
 </div>
@@ -1009,10 +1009,10 @@ const { error } = await supabase.from("clients").insert({
           </div>
 
           <div className="flex justify-end gap-2 pt-2">
-            <Button variant="soft" onClick={() => setCreateOpen(false)} disabled={creating}>
+            <Button variant="secondary" onClick={() => setCreateOpen(false)} disabled={creating}>
               Annuler
             </Button>
-            <Button variant="primary" onClick={() => void createClient()} disabled={creating}>
+            <Button variant="default" onClick={() => void createClient()} disabled={creating}>
               {creating ? "Création..." : "Créer"}
             </Button>
           </div>
@@ -1134,7 +1134,7 @@ const { error } = await supabase.from("clients").insert({
 
           <div className="flex justify-end gap-2 pt-2">
             <Button
-              variant="soft"
+              variant="secondary"
               onClick={() => {
                 setEditOpen(false);
                 setSelected(null);
@@ -1143,7 +1143,7 @@ const { error } = await supabase.from("clients").insert({
             >
               Annuler
             </Button>
-            <Button variant="primary" onClick={() => void saveEdit()} disabled={saving}>
+            <Button variant="default" onClick={() => void saveEdit()} disabled={saving}>
               {saving ? "Sauvegarde..." : "Sauvegarder"}
             </Button>
           </div>

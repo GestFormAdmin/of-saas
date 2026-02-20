@@ -29,10 +29,10 @@ export default function AccountCard({
         </div>
 
         <div className="flex gap-2">
-          <Button variant="soft" onClick={() => setOpenEmail(true)}>
+          <Button variant="secondary" onClick={() => setOpenEmail(true)}>
             Modifier l’email
           </Button>
-          <Button variant="soft" onClick={() => setOpenPassword(true)}>
+          <Button variant="secondary" onClick={() => setOpenPassword(true)}>
             Mot de passe
           </Button>
         </div>

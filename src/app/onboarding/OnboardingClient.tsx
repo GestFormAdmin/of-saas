@@ -6,7 +6,7 @@ import { useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
 import { supabase } from "@/lib/supabaseClient";
 import { authUi as uiRaw } from "@/lib/ui";
-import { BlueAuthShell } from "@/components/BlueAuthShell";
+import BlueAuthShell from "@/components/BlueAuthShell";
 
 const ui: any = uiRaw;
 

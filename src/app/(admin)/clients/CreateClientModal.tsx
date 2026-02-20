@@ -141,15 +141,15 @@ export default function CreateClientModal({ open, onClose, onSaved, onSavedAndOp
       </div>
 
       <div className="mt-4 flex justify-end gap-2">
-        <Button variant="soft" onClick={onClose} disabled={saving}>
+        <Button variant="secondary" onClick={onClose} disabled={saving}>
           Annuler
         </Button>
 
-        <Button variant="soft" onClick={() => void save("stay")} disabled={saving}>
+        <Button variant="secondary" onClick={() => void save("stay")} disabled={saving}>
           {saving ? "Enregistrement…" : "Enregistrer"}
         </Button>
 
-        <Button variant="primary" onClick={() => void save("openClients")} disabled={saving}>
+        <Button variant="default" onClick={() => void save("openClients")} disabled={saving}>
           {saving ? "Enregistrement…" : "Enregistrer + ouvrir Clients"}
         </Button>
       </div>
