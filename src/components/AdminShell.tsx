@@ -15,6 +15,7 @@ import {
   FileText,
   Package,
   UserPlus,
+  Download,
 } from "lucide-react";
 
 type SidebarContext = {
@@ -58,7 +59,9 @@ function SidebarHeaderInline(props: {
             // eslint-disable-next-line @next/next/no-img-element
             <img src={orgLogoUrl} alt="Org" style={{ width: "100%", height: "100%", objectFit: "cover" }} />
           ) : (
-            <span style={{ fontSize: 12, opacity: 0.9 }}>{(orgName ?? "OF").slice(0, 2).toUpperCase()}</span>
+            <span style={{ fontSize: 12, opacity: 0.9 }}>
+              {(orgName ?? "OF").slice(0, 2).toUpperCase()}
+            </span>
           )}
         </div>
 
@@ -128,6 +131,9 @@ export default function AdminShell({ children }: { children: React.ReactNode }) 
   const [ctx, setCtx] = React.useState<SidebarContext | null>(null);
   const { allowedPages, isLoading, refresh } = usePermissions();
 
+  // ===============================
+  // NAVIGATION
+  // ===============================
   const nav = React.useMemo<NavItem[]>(
     () => [
       { key: "dashboard", label: "Accueil", href: "/dashboard", icon: LayoutDashboard },
@@ -139,25 +145,29 @@ export default function AdminShell({ children }: { children: React.ReactNode }) 
       { key: "produits", label: "Produits & Services", href: "/produits", icon: Package },
       { key: "abonnes_application", label: "Abonnés application", href: "/abonnes-application", icon: UserPlus },
       { key: "documents_vierges", label: "Documents vierges", href: "/documents-vierges", icon: FileText },
+
+      // ✅ EXPORT — toujours visible
+      { key: "export", label: "Export", href: "/export", icon: Download },
     ],
     []
   );
 
+  // ===============================
+  // CONTEXTE UTILISATEUR / ORG
+  // ===============================
   React.useEffect(() => {
     let alive = true;
 
     const load = async () => {
       const { data, error } = await supabase.rpc("get_my_account_context_v2");
-      if (!alive) return;
-      if (error) return;
+      if (!alive || error) return;
 
       const row = Array.isArray(data) ? data[0] : data;
       if (!row) return;
 
-      // ✅ persist current org côté backend
       if (row?.current_org_id) {
         await supabase.rpc("set_current_org", { p_org_id: row.current_org_id });
-        await refresh(); // ✅ recharge permissions après set_current_org
+        await refresh();
       }
 
       setCtx({
@@ -172,7 +182,6 @@ export default function AdminShell({ children }: { children: React.ReactNode }) 
     };
 
     void load();
-
     const onOrgChanged = () => void load();
     window.addEventListener("fa:org_changed", onOrgChanged);
 
@@ -192,21 +201,29 @@ export default function AdminShell({ children }: { children: React.ReactNode }) 
     return v || null;
   }, [ctx?.user_first_name, ctx?.user_last_name]);
 
+  // ===============================
+  // FILTRAGE NAV — FIX ICI
+  // ===============================
   const filteredNav = React.useMemo(() => {
+    const ALWAYS_VISIBLE = new Set<string>(["/dashboard", "/export"]);
+
     if (isLoading) return nav;
     if (!allowedPages) return nav;
 
     const allowed = new Set(allowedPages);
     const has = (k: string) => allowed.has(k) || allowed.has(k.replaceAll("_", "/"));
 
-    return nav.filter((item) => item.href === "/dashboard" || has(item.key));
+    return nav.filter((item) => ALWAYS_VISIBLE.has(item.href) || has(item.key));
   }, [allowedPages, isLoading, nav]);
 
+  // ===============================
+  // RENDER
+  // ===============================
   return (
     <div style={{ display: "flex", minHeight: "100vh" }}>
       <AccessNotificationsGate />
 
-      <aside style={{ width: 280, background: "#0d1535", color: "white", padding: 0 }}>
+      <aside style={{ width: 280, background: "#0d1535", color: "white" }}>
         <SidebarHeaderInline
           appName="FormaAdmin"
           orgName={ctx?.org_name ?? null}
