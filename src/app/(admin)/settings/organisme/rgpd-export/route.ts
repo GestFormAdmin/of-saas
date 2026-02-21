@@ -58,8 +58,7 @@ async function makePdf(text: string): Promise<Buffer> {
 }
 
 export async function GET() {
-  const supabase = createSupabaseServerClient();
-
+const supabase = await createSupabaseServerClient();
   const { data: userData, error: userErr } = await supabase.auth.getUser();
   if (userErr || !userData?.user) {
     return NextResponse.json({ error: "unauthorized" }, { status: 401 });

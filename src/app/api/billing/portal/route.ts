@@ -3,6 +3,7 @@ import Stripe from "stripe";
 import { createClient } from "@supabase/supabase-js";
 
 export const runtime = "nodejs";
+export const dynamic = "force-dynamic";
 
 function assertUuid(id: string): boolean {
   return /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(
@@ -21,8 +22,9 @@ function getAppBaseUrl(): string {
 function supabaseAdmin() {
   const url = process.env.NEXT_PUBLIC_SUPABASE_URL;
   const serviceKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
-  if (!url) throw new Error("Missing env: NEXT_PUBLIC_SUPABASE_URL");
-  if (!serviceKey) throw new Error("Missing env: SUPABASE_SERVICE_ROLE_KEY");
+
+  if (!url || !serviceKey) return null;
+
   return createClient(url, serviceKey, {
     auth: { persistSession: false, autoRefreshToken: false },
   });
@@ -31,8 +33,9 @@ function supabaseAdmin() {
 function supabaseAnon() {
   const url = process.env.NEXT_PUBLIC_SUPABASE_URL;
   const anon = process.env.NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY;
-  if (!url) throw new Error("Missing env: NEXT_PUBLIC_SUPABASE_URL");
-  if (!anon) throw new Error("Missing env: NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY");
+
+  if (!url || !anon) return null;
+
   return createClient(url, anon, {
     auth: { persistSession: false, autoRefreshToken: false },
   });
@@ -49,6 +52,13 @@ async function requireSupabaseUser(req: Request) {
   }
 
   const supabase = supabaseAnon();
+  if (!supabase) {
+    return {
+      error: "Missing env: NEXT_PUBLIC_SUPABASE_URL or NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY",
+      status: 500 as const,
+    };
+  }
+
   const { data, error } = await supabase.auth.getUser(token);
   if (error || !data.user) {
     return { error: "Unauthorized (invalid Supabase token)", status: 401 as const };
@@ -57,13 +67,6 @@ async function requireSupabaseUser(req: Request) {
   return { user: { id: data.user.id, email: data.user.email ?? null } };
 }
 
-const stripeSecret = process.env.STRIPE_SECRET_KEY;
-if (!stripeSecret) throw new Error("Missing env: STRIPE_SECRET_KEY");
-
-const stripe = new Stripe(stripeSecret, {
-  apiVersion: "2025-07-30.basil" as any,
-});
-
 type Body = {
   org_id?: string;
   return_path?: string;
@@ -71,13 +74,30 @@ type Body = {
 
 export async function POST(req: Request) {
   try {
+    // ✅ env Stripe lues uniquement ici
+    const stripeSecret = process.env.STRIPE_SECRET_KEY;
+    if (!stripeSecret) {
+      return NextResponse.json({ error: "Missing env: STRIPE_SECRET_KEY" }, { status: 500 });
+    }
+
+    const stripe = new Stripe(stripeSecret, {
+      apiVersion: "2025-07-30.basil" as any,
+    });
+
     const auth = await requireSupabaseUser(req);
     if ("error" in auth) {
       return NextResponse.json({ error: auth.error }, { status: auth.status });
     }
 
-    const body = (await req.json()) as Body;
     const admin = supabaseAdmin();
+    if (!admin) {
+      return NextResponse.json(
+        { error: "Missing env: NEXT_PUBLIC_SUPABASE_URL or SUPABASE_SERVICE_ROLE_KEY" },
+        { status: 500 }
+      );
+    }
+
+    const body = (await req.json().catch(() => ({}))) as Body;
     const baseUrl = getAppBaseUrl();
     const returnPath = body.return_path ?? "/settings/abonnement";
 
@@ -98,7 +118,9 @@ export async function POST(req: Request) {
       if (curOrgErr) return NextResponse.json({ error: curOrgErr.message }, { status: 500 });
 
       orgId = curOrg?.[0]?.org_id ? String(curOrg[0].org_id) : null;
-      if (!orgId) return NextResponse.json({ error: "No org selected for this user" }, { status: 400 });
+      if (!orgId) {
+        return NextResponse.json({ error: "No org selected for this user" }, { status: 400 });
+      }
     }
 
     // check accès user -> org

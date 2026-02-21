@@ -3,47 +3,49 @@ import Stripe from "stripe";
 import { createClient } from "@supabase/supabase-js";
 
 export const runtime = "nodejs";
+export const dynamic = "force-dynamic";
 
-// Stripe init moved inside POST to avoid build-time env access
-const stripe = new Stripe(STRIPE_SECRET_KEY, {
-  apiVersion: "2025-07-30.basil" as any,
-});
+// ⚠️ PAS de Stripe init au top-level (sinon build casse)
 
 function supabaseAdmin() {
   const url = process.env.NEXT_PUBLIC_SUPABASE_URL;
   const serviceKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
-  if (!url) throw new Error("Missing env: NEXT_PUBLIC_SUPABASE_URL");
-  if (!serviceKey) throw new Error("Missing env: SUPABASE_SERVICE_ROLE_KEY");
+
+  if (!url || !serviceKey) {
+    // on ne throw pas au build; on renverra une 500 au runtime si route appelée
+    return null;
+  }
+
   return createClient(url, serviceKey, { auth: { persistSession: false } });
 }
 
 type PlanCode = "free" | "pro" | "business" | "scale" | "enterprise" | "custom";
 
-// ✅ mapping price_id -> plan_code (TES IDs)
+// ✅ mapping price_id -> plan_code (TES IDs) — ne throw jamais (build-safe)
 function planFromPriceId(priceId: string | null): PlanCode {
   if (!priceId) return "free";
 
-  const STRIPE_PRICE_PRO = process.env.STRIPE_PRICE_PRO;
-  const STRIPE_PRICE_BUSINESS = process.env.STRIPE_PRICE_BUSINESS;
-  const STRIPE_PRICE_SCALE = process.env.STRIPE_PRICE_SCALE;
-  const STRIPE_PRICE_ENTERPRISE = process.env.STRIPE_PRICE_ENTERPRISE;
+  const pro = process.env.STRIPE_PRICE_PRO;
+  const business = process.env.STRIPE_PRICE_BUSINESS;
+  const scale = process.env.STRIPE_PRICE_SCALE;
+  const enterprise = process.env.STRIPE_PRICE_ENTERPRISE;
 
-  if (!STRIPE_PRICE_PRO) throw new Error("Missing env: STRIPE_PRICE_PRO");
-  if (!STRIPE_PRICE_BUSINESS) throw new Error("Missing env: STRIPE_PRICE_BUSINESS");
-  if (!STRIPE_PRICE_SCALE) throw new Error("Missing env: STRIPE_PRICE_SCALE");
-  if (!STRIPE_PRICE_ENTERPRISE) throw new Error("Missing env: STRIPE_PRICE_ENTERPRISE");
-
-  if (priceId === STRIPE_PRICE_PRO) return "pro";
-  if (priceId === STRIPE_PRICE_BUSINESS) return "business";
-  if (priceId === STRIPE_PRICE_SCALE) return "scale";
-  if (priceId === STRIPE_PRICE_ENTERPRISE) return "enterprise";
+  if (pro && priceId === pro) return "pro";
+  if (business && priceId === business) return "business";
+  if (scale && priceId === scale) return "scale";
+  if (enterprise && priceId === enterprise) return "enterprise";
   return "free";
 }
 
 export async function POST(req: Request) {
   const STRIPE_SECRET_KEY = process.env.STRIPE_SECRET_KEY;
+  const webhookSecret = process.env.STRIPE_WEBHOOK_SECRET;
+
   if (!STRIPE_SECRET_KEY) {
     return NextResponse.json({ error: "Missing env: STRIPE_SECRET_KEY" }, { status: 500 });
+  }
+  if (!webhookSecret) {
+    return NextResponse.json({ error: "Missing env: STRIPE_WEBHOOK_SECRET" }, { status: 500 });
   }
 
   const stripe = new Stripe(STRIPE_SECRET_KEY, {
@@ -51,11 +53,8 @@ export async function POST(req: Request) {
   });
 
   const sig = req.headers.get("stripe-signature");
-  if (!sig) return NextResponse.json({ error: "Missing stripe-signature" }, { status: 400 });
-
-  const webhookSecret = process.env.STRIPE_WEBHOOK_SECRET;
-  if (!webhookSecret) {
-    return NextResponse.json({ error: "Missing env: STRIPE_WEBHOOK_SECRET" }, { status: 500 });
+  if (!sig) {
+    return NextResponse.json({ error: "Missing stripe-signature" }, { status: 400 });
   }
 
   const rawBody = await req.text();
@@ -68,6 +67,12 @@ export async function POST(req: Request) {
   }
 
   const admin = supabaseAdmin();
+  if (!admin) {
+    return NextResponse.json(
+      { error: "Missing env: NEXT_PUBLIC_SUPABASE_URL or SUPABASE_SERVICE_ROLE_KEY" },
+      { status: 500 }
+    );
+  }
 
   try {
     if (
@@ -75,7 +80,6 @@ export async function POST(req: Request) {
       event.type === "customer.subscription.updated" ||
       event.type === "customer.subscription.deleted"
     ) {
-      // TS compat selon version stripe: on garde un any pour les champs connus
       const sub = event.data.object as Stripe.Subscription as any;
 
       const orgId = (sub.metadata?.org_id ?? null) as string | null;

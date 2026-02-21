@@ -3,19 +3,12 @@ import Stripe from "stripe";
 import { createClient } from "@supabase/supabase-js";
 
 export const runtime = "nodejs";
-
-const STRIPE_SECRET_KEY = process.env.STRIPE_SECRET_KEY;
-if (!STRIPE_SECRET_KEY) throw new Error("Missing env: STRIPE_SECRET_KEY");
-
-const stripe = new Stripe(STRIPE_SECRET_KEY, {
-  apiVersion: "2025-07-30.basil" as any,
-});
+export const dynamic = "force-dynamic";
 
 function supabaseAdmin() {
   const url = process.env.NEXT_PUBLIC_SUPABASE_URL;
   const serviceKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
-  if (!url) throw new Error("Missing env: NEXT_PUBLIC_SUPABASE_URL");
-  if (!serviceKey) throw new Error("Missing env: SUPABASE_SERVICE_ROLE_KEY");
+  if (!url || !serviceKey) return null;
   return createClient(url, serviceKey, { auth: { persistSession: false } });
 }
 
@@ -24,42 +17,55 @@ type PlanCode = "free" | "pro" | "business" | "scale" | "enterprise" | "custom";
 function planFromPriceId(priceId: string | null): PlanCode {
   if (!priceId) return "free";
 
-  const STRIPE_PRICE_PRO = process.env.STRIPE_PRICE_PRO;
-  const STRIPE_PRICE_BUSINESS = process.env.STRIPE_PRICE_BUSINESS;
-  const STRIPE_PRICE_SCALE = process.env.STRIPE_PRICE_SCALE;
-  const STRIPE_PRICE_ENTERPRISE = process.env.STRIPE_PRICE_ENTERPRISE;
+  const pro = process.env.STRIPE_PRICE_PRO;
+  const business = process.env.STRIPE_PRICE_BUSINESS;
+  const scale = process.env.STRIPE_PRICE_SCALE;
+  const enterprise = process.env.STRIPE_PRICE_ENTERPRISE;
 
-  if (!STRIPE_PRICE_PRO) throw new Error("Missing env: STRIPE_PRICE_PRO");
-  if (!STRIPE_PRICE_BUSINESS) throw new Error("Missing env: STRIPE_PRICE_BUSINESS");
-  if (!STRIPE_PRICE_SCALE) throw new Error("Missing env: STRIPE_PRICE_SCALE");
-  if (!STRIPE_PRICE_ENTERPRISE) throw new Error("Missing env: STRIPE_PRICE_ENTERPRISE");
-
-  if (priceId === STRIPE_PRICE_PRO) return "pro";
-  if (priceId === STRIPE_PRICE_BUSINESS) return "business";
-  if (priceId === STRIPE_PRICE_SCALE) return "scale";
-  if (priceId === STRIPE_PRICE_ENTERPRISE) return "enterprise";
+  if (pro && priceId === pro) return "pro";
+  if (business && priceId === business) return "business";
+  if (scale && priceId === scale) return "scale";
+  if (enterprise && priceId === enterprise) return "enterprise";
   return "free";
 }
 
 export async function POST(req: Request) {
-  const sig = req.headers.get("stripe-signature");
-  if (!sig) return NextResponse.json({ error: "Missing stripe-signature" }, { status: 400 });
+  // ✅ AUCUNE lecture env / Stripe init au top-level
+  const STRIPE_SECRET_KEY = process.env.STRIPE_SECRET_KEY;
+  const STRIPE_WEBHOOK_SECRET = process.env.STRIPE_WEBHOOK_SECRET;
 
-  const webhookSecret = process.env.STRIPE_WEBHOOK_SECRET;
-  if (!webhookSecret) {
+  if (!STRIPE_SECRET_KEY) {
+    return NextResponse.json({ error: "Missing env: STRIPE_SECRET_KEY" }, { status: 500 });
+  }
+  if (!STRIPE_WEBHOOK_SECRET) {
     return NextResponse.json({ error: "Missing env: STRIPE_WEBHOOK_SECRET" }, { status: 500 });
+  }
+
+  const stripe = new Stripe(STRIPE_SECRET_KEY, {
+    apiVersion: "2025-07-30.basil" as any,
+  });
+
+  const sig = req.headers.get("stripe-signature");
+  if (!sig) {
+    return NextResponse.json({ error: "Missing stripe-signature" }, { status: 400 });
   }
 
   const rawBody = await req.text();
 
   let event: Stripe.Event;
   try {
-    event = stripe.webhooks.constructEvent(rawBody, sig, webhookSecret);
+    event = stripe.webhooks.constructEvent(rawBody, sig, STRIPE_WEBHOOK_SECRET);
   } catch (e: any) {
     return NextResponse.json({ error: `Invalid signature: ${e.message}` }, { status: 400 });
   }
 
   const admin = supabaseAdmin();
+  if (!admin) {
+    return NextResponse.json(
+      { error: "Missing env: NEXT_PUBLIC_SUPABASE_URL or SUPABASE_SERVICE_ROLE_KEY" },
+      { status: 500 }
+    );
+  }
 
   try {
     if (
