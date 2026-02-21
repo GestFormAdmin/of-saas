@@ -1,5 +1,3 @@
-
-
 import { NextResponse } from "next/server";
 import PDFDocument from "pdfkit";
 import { PassThrough } from "stream";
@@ -24,10 +22,12 @@ async function makePdf(text: string): Promise<Buffer> {
       stream.on("end", () => resolve(Buffer.concat(chunks)));
       stream.on("error", reject);
 
-      // ⚠️ OBLIGATOIRE → sinon PDF corrompu
       doc.pipe(stream);
 
-      doc.font("Helvetica-Bold").fontSize(18).text("DOCUMENT RGPD – EXPORT UTILISATEUR");
+      doc
+        .font("Helvetica-Bold")
+        .fontSize(18)
+        .text("DOCUMENT RGPD – EXPORT UTILISATEUR");
       doc.moveDown(1);
 
       doc.font("Helvetica").fontSize(11);
@@ -58,19 +58,27 @@ async function makePdf(text: string): Promise<Buffer> {
 }
 
 export async function GET() {
-const supabase = createSupabaseServerClient();
+  const supabase = createSupabaseServerClient();
 
   const { data: userData, error: userErr } = await supabase.auth.getUser();
   if (userErr || !userData?.user) {
     return NextResponse.json({ error: "unauthorized" }, { status: 401 });
   }
 
-  const { data: orgId } = await supabase.rpc("current_org_id");
-  const { data: org } = await supabase
+  const { data: orgId, error: orgIdErr } = await supabase.rpc("current_org_id");
+  if (orgIdErr || !orgId) {
+    return NextResponse.json({ error: "no_org_context" }, { status: 403 });
+  }
+
+  const { data: org, error: orgErr } = await supabase
     .from("organizations")
     .select("name")
     .eq("id", orgId)
     .maybeSingle();
+
+  if (orgErr) {
+    return NextResponse.json({ error: "org_fetch_failed" }, { status: 500 });
+  }
 
   const email = userData.user.email ?? "";
   const orgName = org?.name ?? "";
@@ -107,7 +115,7 @@ Date : ${date}
   const pdf = await makePdf(text);
   const filename = `rgpd-document-${date}.pdf`;
 
-return new NextResponse(new Uint8Array(pdf), {
+  return new NextResponse(new Uint8Array(pdf), {
     status: 200,
     headers: {
       "Content-Type": "application/pdf",
