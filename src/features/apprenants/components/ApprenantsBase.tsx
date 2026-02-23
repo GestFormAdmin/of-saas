@@ -73,7 +73,7 @@ type FormState = {
   postal_code: string | null;
   city: string | null;
 
-  forprev: boolean;
+  forprev: boolean | null; // ✅ tri-état
   candidate_manual_validated: boolean;
 };
 
@@ -135,8 +135,10 @@ function pct(n: number, d: number) {
   return Math.round((n / d) * 100);
 }
 
-function yesNo(v: boolean) {
-  return v ? "Oui" : "Non";
+function yesNo(v: boolean | null | undefined) {
+  if (v === true) return "Oui";
+  if (v === false) return "Non";
+  return "N.C";
 }
 
 function required(v: string) {
@@ -264,7 +266,57 @@ function Select(props: React.SelectHTMLAttributes<HTMLSelectElement>) {
   const { className, ...rest } = props;
   return <select {...rest} className={`w-full rounded-xl border px-4 py-3 text-sm outline-none ${className ?? ""}`} />;
 }
+function ForprevPill({
+  value,
+  onChange,
+  disabled,
+  size = "md",
+}: {
+  value: boolean | null | undefined;
+  onChange: (next: boolean | null) => void;
+  disabled?: boolean;
+  size?: "sm" | "md";
+}) {
+  const v: boolean | null = value === undefined ? null : value;
 
+  const nextValue = (cur: boolean | null) => {
+    if (cur === null) return true;   // N.C -> Oui
+    if (cur === true) return false;  // Oui -> Non
+    return null;                     // Non -> N.C
+  };
+
+  const label = v === true ? "Oui" : v === false ? "Non" : "N.C";
+
+  const style: React.CSSProperties = {
+    display: "inline-flex",
+    alignItems: "center",
+    justifyContent: "center",
+    height: size === "sm" ? 26 : 30,
+    padding: size === "sm" ? "0 10px" : "0 12px",
+    borderRadius: 999,
+    border: "1px solid rgba(15, 23, 42, 0.14)",
+    background: v === true ? "rgba(34,197,94,.12)" : v === false ? "rgba(239,68,68,.12)" : "rgba(148,163,184,.18)",
+    color: v === true ? "rgb(21,128,61)" : v === false ? "rgb(185,28,28)" : "rgb(51,65,85)",
+    fontSize: 12,
+    fontWeight: 900,
+    cursor: disabled ? "not-allowed" : "pointer",
+    opacity: disabled ? 0.6 : 1,
+    userSelect: "none",
+    whiteSpace: "nowrap",
+  };
+
+  return (
+    <button
+      type="button"
+      disabled={disabled}
+      onClick={() => onChange(nextValue(v))}
+      style={style}
+      title="Cliquer pour changer : N.C → Oui → Non"
+    >
+      {label}
+    </button>
+  );
+}
 /* ================== CONSTS ================== */
 
 const EMPTY_FORM: FormState = {
@@ -280,8 +332,8 @@ const EMPTY_FORM: FormState = {
   street: null,
   postal_code: null,
   city: null,
-  forprev: false,
-  candidate_manual_validated: false,
+  forprev: null,
+    candidate_manual_validated: false,
 };
 
 const EMPTY_MULTI_ROW: MultiRow = {
@@ -846,7 +898,7 @@ const ensureOrgContext = async (_orgId: string) => {
         postal_code: a.postal_code ?? null,
         city: a.city ?? null,
 
-        forprev: a.forprev === true,
+forprev: a.forprev ?? null,
         candidate_manual_validated: a.candidate_manual_validated === true,
       });
 
@@ -898,7 +950,7 @@ const ensureOrgContext = async (_orgId: string) => {
         postal_code: form.postal_code?.trim() || null,
         city: form.city?.trim() || null,
 
-        forprev: form.forprev ? true : null,
+forprev: form.forprev,
         candidate_manual_validated: !!form.candidate_manual_validated,
       };
 
@@ -985,7 +1037,7 @@ const ensureOrgContext = async (_orgId: string) => {
         postal_code: form.postal_code?.trim() || null,
         city: form.city?.trim() || null,
 
-        forprev: form.forprev ? true : null,
+forprev: form.forprev,
         candidate_manual_validated: !!form.candidate_manual_validated,
       };
 
@@ -1075,7 +1127,7 @@ const ensureOrgContext = async (_orgId: string) => {
         postal_code: form.postal_code?.trim() || null,
         city: form.city?.trim() || null,
 
-        forprev: form.forprev ? true : null,
+forprev: form.forprev,
         candidate_manual_validated: !!form.candidate_manual_validated,
       };
 
@@ -1240,11 +1292,10 @@ const ensureOrgContext = async (_orgId: string) => {
       </div>
 
       <div>
-        <Label>FORPREV ?</Label>
-        <label className="mt-2 inline-flex items-center gap-2 font-semibold">
-          <input type="checkbox" checked={form.forprev} onChange={(e) => onChange("forprev", e.target.checked)} />
-          Oui
-        </label>
+       <Label>FORPREV</Label>
+<div className="mt-2">
+  <ForprevPill value={form.forprev} onChange={(next) => onChange("forprev", next)} />
+</div>
       </div>
 
       <div>
@@ -1655,21 +1706,15 @@ const ensureOrgContext = async (_orgId: string) => {
                       if (col.key === "session") value = r.session_label ?? "—";
                       if (col.key === "end_date") value = toFrDate(r.end_date);
                       if (col.key === "validated") value = yesNo(isValidatedRow(r));
-                      if (col.key === "forprev") {
-                        const cls =
-                          r.forprev === true ? "text-green-600" : r.forprev === false ? "text-red-600" : "text-muted-foreground";
-
-                        value = (
-                          <button
-                            type="button"
-                            onClick={() => void toggleForprev(r.id, r.forprev)}
-                            className={`font-extrabold ${cls}`}
-                            title="Basculer FORPREV (tri-état)"
-                          >
-                            {r.forprev === true ? "Oui" : r.forprev === false ? "Non" : "—"}
-                          </button>
-                        );
-                      }
+                     if (col.key === "forprev") {
+  value = (
+    <ForprevPill
+      value={r.forprev}
+      onChange={() => void toggleForprev(r.id, r.forprev)}
+      size="sm"
+    />
+  );
+}
 
                       return (
                         <td key={col.key} className="whitespace-nowrap px-3 py-2 text-[13px]">

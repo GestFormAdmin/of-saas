@@ -129,23 +129,30 @@ const HOURS_PER_DAY = 7;
 
 function splitHoursToDays(hours: number | null | undefined) {
   const h = Number(hours ?? 0);
-  if (!Number.isFinite(h) || h <= 0) return { days: 0, hours: 0, label: "—" };
+
+  if (!Number.isFinite(h) || h <= 0) {
+    return { days: 0, hours: 0, label: "—" };
+  }
+
+  // ✅ Règle métier : toute durée > 0 et < 7h = 1 jour minimum
+  if (h < HOURS_PER_DAY) {
+    return { days: 1, hours: 0, label: "1 j" };
+  }
 
   const days = Math.floor(h / HOURS_PER_DAY);
-  const rest = h % HOURS_PER_DAY;
+  const rest = Math.round((h - days * HOURS_PER_DAY) * 100) / 100;
 
   const parts: string[] = [];
   if (days > 0) parts.push(`${days} j`);
   if (rest > 0) parts.push(`${rest} h`);
-  if (days === 0 && rest === 0) parts.push("0 h");
 
   return { days, hours: rest, label: parts.join(" ") };
 }
 
+// ⚠️ À NE PAS SUPPRIMER : utilisé dans les map() JSX
 function formatDurationFromHours(hours: number | null | undefined) {
   return splitHoursToDays(hours).label;
 }
-
 /* ================== URSSAF ================== */
 const URSSAF_RATE = 0.27;
 const urssafAuto = (ttc: number) => Number((ttc * URSSAF_RATE).toFixed(2));
