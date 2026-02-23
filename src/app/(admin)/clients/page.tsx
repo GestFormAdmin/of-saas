@@ -1,12 +1,8 @@
-"use client";
+export const dynamic = "force-dynamic";
+export const revalidate = 0;
 
-import RequirePageAccessClient from "@/features/auth/RequirePageAccessClient";
 import ClientsPageClient from "./ClientsPageClient";
 
-export default function ClientsPage() {
-  return (
-    <RequirePageAccessClient pageKey="clients">
-      <ClientsPageClient />
-    </RequirePageAccessClient>
-  );
+export default function Page() {
+  return <ClientsPageClient />;
 }

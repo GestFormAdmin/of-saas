@@ -801,7 +801,7 @@ const { allowedPages, isLoading } = usePermissions();
                   </div>
                 )}
               </div>
-            </div>
+            
 
             <div className="mt-4">
               <input
