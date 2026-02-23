@@ -196,14 +196,16 @@ export async function GET(req: Request) {
     zip.file("rgpd_documents.csv", toCsv(all.rgpd_documents));
 
     const buf = await zip.generateAsync({ type: "nodebuffer" });
+const body = new Uint8Array(buf);
 
-    return new NextResponse(buf, {
-      status: 200,
-      headers: {
-        "Content-Type": "application/zip",
-        "Content-Disposition": `attachment; filename="export-mes-donnees-csv.zip"`,
-      },
-    });
+return new NextResponse(body, {
+  status: 200,
+  headers: {
+    "Content-Type": "application/zip",
+    "Content-Disposition": 'attachment; filename="export-me.zip"',
+    "Cache-Control": "no-store",
+  },
+});
   } catch (e: any) {
     const msg = e?.message || "ERROR";
     if (msg === "NOT_AUTH") return NextResponse.json({ error: "Unauthorized" }, { status: 401 });

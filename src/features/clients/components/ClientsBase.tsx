@@ -725,13 +725,29 @@ const { allowedPages, isLoading } = usePermissions();
             <div className="flex flex-wrap items-center justify-between gap-3">
               <div className="text-lg font-semibold">Liste des clients</div>
 
-              <div className="relative flex items-center gap-2">
-                <Button variant="secondary" onClick={() => void fetchClients()} disabled={loading}>
-                  Rafraîchir
-                </Button>
-                <Button variant="secondary" onClick={() => setColsOpen((v) => !v)}>
-                  Colonnes
-                </Button>
+              <div className="flex flex-wrap items-center justify-between gap-3">
+  <div className="text-lg font-semibold">Liste des clients</div>
+
+  <div className="relative flex items-center gap-2">
+    <Button variant="default" onClick={openCreate} disabled={loading}>
+      + Ajouter un client
+    </Button>
+
+    <Button variant="secondary" onClick={() => void fetchClients()} disabled={loading}>
+      Rafraîchir
+    </Button>
+
+    <Button variant="secondary" onClick={() => setColsOpen((v) => !v)}>
+      Colonnes
+    </Button>
+
+    {colsOpen && (
+      <div style={popoverStyle}>
+        ...
+      </div>
+    )}
+  </div>
+</div>
 
                 {colsOpen && (
                   <div style={popoverStyle}>

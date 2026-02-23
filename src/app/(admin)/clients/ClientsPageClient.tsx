@@ -1,6 +1,7 @@
 "use client";
 export const dynamic = "force-dynamic";
 export const revalidate = 0;
+
 import React, { useEffect, useMemo, useState } from "react";
 import { supabase } from "@/lib/supabaseClient";
 import ClientRowActions from "./ClientRowActions";
@@ -312,15 +313,14 @@ export default function ClientsPageClient() {
   }, [visibleCols]);
 
   async function loadOrgId() {
-  const { data, error } = await supabase.rpc("current_org_id");
-  console.log("[DEBUG] current_org_id =", data);
-if (error) throw error;
+    const { data, error } = await supabase.rpc("current_org_id");
+    console.log("[DEBUG] current_org_id =", data);
+    if (error) throw error;
 
-  const oid = (data as string) ?? null;
-  if (!oid) throw new Error("Aucun organisme associé à ce compte.");
-  return oid;
-}
-
+    const oid = (data as string) ?? null;
+    if (!oid) throw new Error("Aucun organisme associé à ce compte.");
+    return oid;
+  }
 
   function kpisForYear(map: Record<string, ClientKpis>, clientId: string): ClientKpis {
     return (
@@ -340,37 +340,34 @@ if (error) throw error;
     setError(null);
 
     try {
-     const oid = orgId ?? (await loadOrgId());
-setOrgId(oid);
+      const oid = orgId ?? (await loadOrgId());
+      setOrgId(oid);
 
-// STOP si pas d'org
-if (!oid) {
-  setClients([]);
+      if (!oid) {
+        setClients([]);
+        setError("Aucun organisme associé à ce compte.");
+        setLoading(false);
+        return;
+      }
 
-  setError("Aucun organisme associé à ce compte.");
-  setLoading(false);
-  return;
-}
-
-const { data, error } = await supabase
-  .from("clients")
-  .select(
-    [
-      "id",
-      "org_id",
-      "created_at",
-      "name",
-      "email",
-      "phone",
-      "address_street",
-      "address_postal_code",
-      "address_city",
-      "notes",
-    ].join(",")
-  )
-  .eq("org_id", oid)
-  .order("created_at", { ascending: false });
-
+      const { data, error } = await supabase
+        .from("clients")
+        .select(
+          [
+            "id",
+            "org_id",
+            "created_at",
+            "name",
+            "email",
+            "phone",
+            "address_street",
+            "address_postal_code",
+            "address_city",
+            "notes",
+          ].join(",")
+        )
+        .eq("org_id", oid)
+        .order("created_at", { ascending: false });
 
       if (error) throw error;
       setClients(((data ?? []) as any) as Client[]);
@@ -518,24 +515,24 @@ const { data, error } = await supabase
 
     try {
       const oid = orgId ?? (await loadOrgId());
-setOrgId(oid);
+      setOrgId(oid);
 
-if (!oid) {
-  setCreating(false);
-  setError("Aucun organisme associé à ce compte.");
-  return;
-}
+      if (!oid) {
+        setCreating(false);
+        setError("Aucun organisme associé à ce compte.");
+        return;
+      }
 
-const { error } = await supabase.from("clients").insert({
-  org_id: oid,
-  name: formName.trim() || null,
-  address_street: formStreet.trim() || null,
-  address_postal_code: formPostal.trim() || null,
-  address_city: formCity.trim() || null,
-  email: formEmail.trim() || null,
-  phone: formPhone.trim() || null,
-  notes: formNotes.trim() || null,
-});
+      const { error } = await supabase.from("clients").insert({
+        org_id: oid,
+        name: formName.trim() || null,
+        address_street: formStreet.trim() || null,
+        address_postal_code: formPostal.trim() || null,
+        address_city: formCity.trim() || null,
+        email: formEmail.trim() || null,
+        phone: formPhone.trim() || null,
+        notes: formNotes.trim() || null,
+      });
 
       setCreating(false);
 
@@ -668,9 +665,7 @@ const { error } = await supabase.from("clients").insert({
 
   return (
     <div className="space-y-6">
-      <PageHeader
-        title="Clients"
-        description="Gestion des clients" />
+      <PageHeader title="Clients" description="Gestion des clients" />
 
       {error ? (
         <div className="rounded-2xl border border-red-200 bg-red-50 p-4 text-sm">
@@ -719,14 +714,25 @@ const { error } = await supabase.from("clients").insert({
             <div className="text-lg font-semibold">Liste des clients</div>
 
             <div className="relative flex items-center gap-2">
+              {/* ✅ Bouton style “+ Nouvelle session” */}
+              <Button
+                onClick={openCreate}
+                disabled={loading}
+                className="h-12 rounded-full px-6 text-base font-extrabold text-white shadow-sm disabled:opacity-60"
+                style={{ background: "rgb(239, 68, 68)" }}
+              >
+                + Nouveau client
+              </Button>
+
               <Button variant="secondary" onClick={() => void fetchClients()} disabled={loading}>
                 Rafraîchir
               </Button>
+
               <Button variant="secondary" onClick={() => setColsOpen((v) => !v)}>
                 Colonnes
               </Button>
 
-              {colsOpen && (
+              {colsOpen ? (
                 <div style={popoverStyle}>
                   <div style={{ fontWeight: 950, padding: "6px 8px 8px 8px", opacity: 0.8 }}>Afficher</div>
 
@@ -776,7 +782,7 @@ const { error } = await supabase.from("clients").insert({
                     </button>
                   </div>
                 </div>
-              )}
+              ) : null}
             </div>
           </div>
 
@@ -790,17 +796,15 @@ const { error } = await supabase.from("clients").insert({
           </div>
 
           {showEmpty ? (
-            <div className="mt-6">
-            <div className="space-y-3">
-  <EmptyState
-    title="Aucun client"
-    description="Crée ton premier client pour commencer."
-  />
-  <Button variant="default" onClick={openCreate}>
-    Créer un client
-  </Button>
-</div>
-
+            <div className="mt-6 space-y-3">
+              <EmptyState title="Aucun client" description="Crée ton premier client pour commencer." />
+              <Button
+                onClick={openCreate}
+                className="h-12 rounded-full px-6 text-base font-extrabold text-white shadow-sm"
+                style={{ background: "rgb(239, 68, 68)" }}
+              >
+                + Nouveau client
+              </Button>
             </div>
           ) : (
             <div className="mt-4 overflow-hidden rounded-2xl border">
