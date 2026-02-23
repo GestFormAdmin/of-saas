@@ -1,4 +1,5 @@
 import { NextResponse } from "next/server";
+import { cookies } from "next/headers";
 import PDFDocument from "pdfkit";
 import { PassThrough } from "stream";
 import { createSupabaseServerClient } from "@/lib/supabase/server";

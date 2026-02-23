@@ -2,7 +2,7 @@
 
 import { useEffect, useMemo, useState } from "react";
 import { supabase } from "@/lib/supabaseClient";
-import getCurrentOrgId from "@/lib/getCurrentOrgId";
+import { getCurrentOrgIdClient } from "@/lib/getCurrentOrgId.client";
 
 type ClientRow = {
   id: string;
@@ -25,7 +25,7 @@ export default function ClientsPage() {
   const [saving, setSaving] = useState(false);
 
   async function ensureOrgId(): Promise<string> {
-    const oid = orgId ?? (await getCurrentOrgId());
+    const oid = orgId ?? (await getCurrentOrgIdClient());
     if (!oid) throw new Error("org_id introuvable");
     if (!orgId) setOrgId(oid);
     return oid;

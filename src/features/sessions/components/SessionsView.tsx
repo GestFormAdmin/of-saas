@@ -321,7 +321,8 @@ function sortSessions(rows: SessionRow[], sort: SortState, learnerCountBySession
 
 /* ================== PAGE ================== */
 export default function SessionsPage() {
-  const { allowedPages, isLoading } = usePermissions() as any;
+  // On conserve le hook (mais OF = accès total : pas besoin de perms)
+  usePermissions() as any;
 
   // --- user id (auth ready) ---
   const [userId, setUserId] = useState<string | null>(null);
@@ -352,7 +353,6 @@ export default function SessionsPage() {
   useEffect(() => {
     let alive = true;
 
-    // ✅ tant qu'on n'a pas un userId, on reste en "loading"
     if (!userId) {
       setOrgId(null);
       setOrgLoading(true);
@@ -379,22 +379,11 @@ export default function SessionsPage() {
     };
   }, [userId]);
 
+  // ✅ règle: OF => create/edit/delete ; indépendant => view only
   const isOF = !orgLoading && !!orgId;
-
-  // (garde tes perms pour edit/delete si tu veux, mais create = OF only)
-  const hasPerm = (perm: string) => {
-    if (isLoading) return false;
-    if (Array.isArray(allowedPages)) return allowedPages.includes(perm);
-    if (typeof allowedPages?.includes === "function") return allowedPages.includes(perm);
-    return false;
-  };
-
-  // ✅ RÈGLE DEMANDÉE : bouton création UNIQUEMENT si OF actif (pas de perms)
   const canCreate = isOF;
-
-  // edit/delete restent sur les permissions (comme avant)
-  const canEdit = hasPerm("sessions:edit");
-  const canDelete = hasPerm("sessions:delete");
+  const canEdit = isOF;
+  const canDelete = isOF;
 
   const [rows, setRows] = useState<SessionRow[]>([]);
   const [clients, setClients] = useState<ClientRow[]>([]);
@@ -658,7 +647,6 @@ export default function SessionsPage() {
     }));
 
     setRows(enriched);
-
     await fetchLearnerCountsForSessions(enriched.map((s) => s.id));
   }
 
@@ -738,9 +726,7 @@ export default function SessionsPage() {
     const r = rows.find((x) => x.id === id);
     if (!r) return;
 
-    const isSubcontractSession = r.delivery_type === "subcontract" && r.subcontractor_user_id === userId;
-    if (isSubcontractSession) return;
-
+    // ✅ NE PAS redéclarer canEdit/canDelete ici (ça masquait la logique)
     setSelectedId(id);
     setFormError(null);
 
@@ -1306,9 +1292,7 @@ export default function SessionsPage() {
                     <div style={{ fontWeight: 950 }}>
                       {toFrDate(selected.start_date)} → {toFrDate(selected.end_date)}
                     </div>
-                    <div style={{ opacity: 0.65, fontWeight: 800, marginTop: 4 }}>
-                      Durée : {daysBetweenInclusive(selected.start_date, selected.end_date)} jour(s)
-                    </div>
+                    <div style={{ opacity: 0.65, fontWeight: 800, marginTop: 4 }}>Durée : {daysBetweenInclusive(selected.start_date, selected.end_date)} jour(s)</div>
                   </div>
                 </div>
 

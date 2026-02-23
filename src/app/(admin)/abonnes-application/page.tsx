@@ -52,7 +52,7 @@ export default async function Page() {
 
   let supabase: any;
   try {
-    supabase = createSupabaseServerClient();
+    supabase = await createSupabaseServerClient();
   } catch {
     return (
       <div className="space-y-6">
@@ -69,19 +69,28 @@ export default async function Page() {
     );
   }
 
-  const [
-    { data: subsData, error: subsError },
-    { data: kpiData, error: kpiError },
-  ] = await Promise.all([
-    supabase.rpc("get_app_subscribers_admin_v2").catch((e: any) => ({
-      data: [],
-      error: { message: e?.message ?? "RPC get_app_subscribers_admin_v2 failed" },
-    })),
-    supabase.rpc("admin_get_billing_kpis_v2").catch((e: any) => ({
-      data: [],
-      error: { message: e?.message ?? "RPC admin_get_billing_kpis_v2 failed" },
-    })),
-  ]);
+  let subsData: any[] = [];
+  let kpiData: any[] = [];
+  let subsError: any = null;
+  let kpiError: any = null;
+
+  try {
+    const res = await supabase.rpc("get_app_subscribers_admin_v2");
+    subsData = res?.data ?? [];
+    subsError = res?.error ?? null;
+  } catch (e: any) {
+    subsData = [];
+    subsError = { message: e?.message ?? "RPC get_app_subscribers_admin_v2 failed" };
+  }
+
+  try {
+    const res = await supabase.rpc("admin_get_billing_kpis_v2");
+    kpiData = res?.data ?? [];
+    kpiError = res?.error ?? null;
+  } catch (e: any) {
+    kpiData = [];
+    kpiError = { message: e?.message ?? "RPC admin_get_billing_kpis_v2 failed" };
+  }
 
   const rows: SubscriberRow[] = Array.isArray(subsData)
     ? (subsData as SubscriberRow[])

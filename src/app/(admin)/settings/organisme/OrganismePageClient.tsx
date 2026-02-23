@@ -1,6 +1,7 @@
 "use client";
 export const dynamic = "force-dynamic";
 export const revalidate = 0;
+
 import * as React from "react";
 import { supabase } from "@/lib/supabase/browser";
 import ProfileLogoUploader from "@/features/profile/ProfileLogoUploader";
@@ -16,6 +17,9 @@ export default function MonComptePage() {
   const [savingOrg, setSavingOrg] = React.useState(false);
   const [deletingOrg, setDeletingOrg] = React.useState(false);
   const [deletingAccount, setDeletingAccount] = React.useState(false);
+
+  const [exportingXlsx, setExportingXlsx] = React.useState(false);
+  const [exportingCsv, setExportingCsv] = React.useState(false);
 
   const [userId, setUserId] = React.useState<string | null>(null);
   const [email, setEmail] = React.useState("");
@@ -107,6 +111,57 @@ export default function MonComptePage() {
   }, []);
 
   /* ======================
+     EXPORT "MES DONNÉES"
+     ====================== */
+  const downloadBlob = async (res: Response, filename: string) => {
+    const blob = await res.blob();
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = filename;
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
+    URL.revokeObjectURL(url);
+  };
+
+  const exportMyData = async (format: "xlsx" | "csv") => {
+    try {
+      setMessage(null);
+      if (format === "xlsx") setExportingXlsx(true);
+      else setExportingCsv(true);
+
+      const { data } = await supabase.auth.getSession();
+      const token = data.session?.access_token;
+      if (!token) {
+        setMessage("Non connecté");
+        return;
+      }
+
+      const res = await fetch(`/api/export/me?format=${format}`, {
+        headers: { Authorization: `Bearer ${token}` },
+      });
+
+      if (!res.ok) {
+        const txt = await res.text().catch(() => "");
+        setMessage(txt || "Export impossible");
+        return;
+      }
+
+      if (format === "xlsx") {
+        await downloadBlob(res, "export-mes-donnees.xlsx");
+        setMessage("Export Excel généré ✅");
+      } else {
+        await downloadBlob(res, "export-mes-donnees-csv.zip");
+        setMessage("Export CSV généré ✅");
+      }
+    } finally {
+      setExportingXlsx(false);
+      setExportingCsv(false);
+    }
+  };
+
+  /* ======================
      SAVE PROFIL
      ====================== */
   const saveProfile = async () => {
@@ -161,10 +216,7 @@ export default function MonComptePage() {
     setDeletingOrg(true);
     setMessage(null);
 
-    const { error } = await supabase
-      .from("organizations")
-      .delete()
-      .eq("id", orgId);
+    const { error } = await supabase.from("organizations").delete().eq("id", orgId);
 
     setDeletingOrg(false);
 
@@ -222,7 +274,9 @@ export default function MonComptePage() {
     savingProfile ||
     savingOrg ||
     deletingOrg ||
-    deletingAccount;
+    deletingAccount ||
+    exportingXlsx ||
+    exportingCsv;
 
   /* ======================
      UI
@@ -231,77 +285,57 @@ export default function MonComptePage() {
     <div className="space-y-8">
       <div className="flex items-center justify-between">
         <h1 className="text-2xl font-semibold">Mon compte</h1>
-        <button
-          className="btn btn-primary"
-          onClick={saveProfile}
-          disabled={disabled}
-        >
+        <button className="btn btn-primary" onClick={saveProfile} disabled={disabled}>
           {savingProfile ? "Enregistrement..." : "Enregistrer"}
         </button>
       </div>
 
-      {message && (
-        <div className="rounded-xl border p-4 text-sm">{message}</div>
-      )}
+      {message && <div className="rounded-xl border p-4 text-sm">{message}</div>}
 
       {/* PROFIL */}
       <div className="card space-y-4">
         <h2 className="text-lg font-medium">Profil</h2>
 
-        <ProfileLogoUploader
-          initialUrl={userLogoUrl}
-          onSaved={setUserLogoUrl}
-        />
+        <ProfileLogoUploader initialUrl={userLogoUrl} onSaved={setUserLogoUrl} />
 
         <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-          <input
-            className="input"
-            placeholder="Prénom"
-            value={firstName}
-            onChange={(e) => setFirstName(e.target.value)}
-          />
-          <input
-            className="input"
-            placeholder="Nom"
-            value={lastName}
-            onChange={(e) => setLastName(e.target.value)}
-          />
+          <input className="input" placeholder="Prénom" value={firstName} onChange={(e) => setFirstName(e.target.value)} />
+          <input className="input" placeholder="Nom" value={lastName} onChange={(e) => setLastName(e.target.value)} />
         </div>
 
-        <input
-          className="input"
-          placeholder="Téléphone"
-          value={phone}
-          onChange={(e) => setPhone(e.target.value)}
-        />
+        <input className="input" placeholder="Téléphone" value={phone} onChange={(e) => setPhone(e.target.value)} />
 
         <input className="input" value={email} disabled />
+      </div>
+
+      {/* EXPORT "MES DONNÉES" */}
+      <div className="card space-y-4">
+        <h2 className="text-lg font-medium">Exporter mes données</h2>
+        <div className="flex flex-wrap gap-2">
+          <button className="btn btn-secondary" onClick={() => void exportMyData("xlsx")} disabled={disabled}>
+            {exportingXlsx ? "Export Excel..." : "Exporter (Excel)"}
+          </button>
+          <button className="btn btn-secondary" onClick={() => void exportMyData("csv")} disabled={disabled}>
+            {exportingCsv ? "Export CSV..." : "Exporter (CSV)"}
+          </button>
+        </div>
+        <div className="text-xs opacity-70">
+          Exporte : profil, sessions, apprenants, clients, produits, factures/devis, dépenses… (selon tes accès).
+        </div>
       </div>
 
       {/* ORGANISME */}
       <div className="card space-y-4">
         <h2 className="text-lg font-medium">Organisme</h2>
 
-        <input
-          className="input"
-          value={orgName}
-          onChange={(e) => setOrgName(e.target.value)}
-        />
+        <input className="input" value={orgName} onChange={(e) => setOrgName(e.target.value)} />
 
         <div className="flex gap-2">
-          <button
-            className="btn btn-secondary"
-            onClick={saveOrg}
-            disabled={!orgId || savingOrg}
-          >
+          <button className="btn btn-secondary" onClick={saveOrg} disabled={!orgId || savingOrg || disabled}>
             {savingOrg ? "Sauvegarde..." : "Enregistrer l’organisme"}
           </button>
 
-          <button
-            className="btn btn-danger"
-            onClick={deleteOrg}
-            disabled={!orgId || deletingOrg}
-          >
+          <button className="btn btn-danger" onClick={deleteOrg} disabled={!orgId || deletingOrg || disabled}>
             {deletingOrg ? "Suppression..." : "Supprimer l’organisme"}
           </button>
         </div>
@@ -311,12 +345,8 @@ export default function MonComptePage() {
       <div className="card space-y-4">
         <h2 className="text-lg font-medium">Sécurité du compte</h2>
 
-        <input
-          className="input"
-          value={newEmail}
-          onChange={(e) => setNewEmail(e.target.value)}
-        />
-        <button className="btn btn-secondary" onClick={changeEmail}>
+        <input className="input" value={newEmail} onChange={(e) => setNewEmail(e.target.value)} />
+        <button className="btn btn-secondary" onClick={changeEmail} disabled={disabled}>
           Modifier l’email
         </button>
 
@@ -334,24 +364,16 @@ export default function MonComptePage() {
           value={newPassword2}
           onChange={(e) => setNewPassword2(e.target.value)}
         />
-        <button className="btn btn-secondary" onClick={changePassword}>
+        <button className="btn btn-secondary" onClick={changePassword} disabled={disabled}>
           Modifier le mot de passe
         </button>
       </div>
 
       {/* SUPPRESSION COMPTE */}
       <div className="card border-red-200 space-y-4">
-        <h2 className="text-lg font-medium text-red-700">
-          Supprimer le compte
-        </h2>
-        <button
-          className="btn btn-danger"
-          onClick={deleteAccount}
-          disabled={deletingAccount}
-        >
-          {deletingAccount
-            ? "Suppression..."
-            : "Supprimer définitivement mon compte"}
+        <h2 className="text-lg font-medium text-red-700">Supprimer le compte</h2>
+        <button className="btn btn-danger" onClick={deleteAccount} disabled={disabled}>
+          {deletingAccount ? "Suppression..." : "Supprimer définitivement mon compte"}
         </button>
       </div>
     </div>
