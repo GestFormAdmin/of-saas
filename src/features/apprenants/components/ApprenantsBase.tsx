@@ -1314,95 +1314,95 @@ export default function ApprenantsPageClient() {
       setMultiSaving(false);
     }
   };
+const saveEdit = async () => {
+  if (!selectedId) return;
+  if (!required(form.last_name) || !required(form.first_name)) return;
 
-  const saveEdit = async () => {
-    if (!selectedId) return;
-    if (!required(form.last_name) || !required(form.first_name)) return;
+  setError(null);
+  setSaving(true);
 
-    setError(null);
-    setSaving(true);
+  try {
+    const orgId = await getOrgId();
+    if (!orgId) return;
 
-    try {
-      const payload = {
-        last_name: form.last_name.trim(),
-        first_name: form.first_name.trim(),
-        birth_date: form.birth_date || null,
-        email: form.email?.trim() || null,
-
-        product_id: form.product_id,
-        client_id: form.client_id,
-        structure: form.structure?.trim() || null,
-
-        start_date: form.start_date || null,
-        end_date: form.end_date || null,
-
-        street: form.street?.trim() || null,
-        postal_code: form.postal_code?.trim() || null,
-        city: form.city?.trim() || null,
-
-        forprev: form.forprev,
-        candidate_manual_validated: !!form.candidate_manual_validated,
-      };
-
-      const orgId = await getOrgId();
-      if (!orgId) return;
-
-      const { error: updErr } = await supabase.from("apprenants").update(payload).eq("org_id", orgId).eq("id", selectedId);
-      if (updErr) {
-        setError(errorToMessage(updErr));
-        return;
-      }
-
-      const { error: delPivotErr } = await supabase.from("apprenant_competences").delete().eq("org_id", orgId).eq("apprenant_id", selectedId);
-      if (delPivotErr) {
-        setError(errorToMessage(delPivotErr));
-        return;
-      }
-
-      if (competences.length > 0) {
-        const rowsToInsert = competences.map((c) => ({
-          org_id: orgId,
-          apprenant_id: selectedId,
-          competence_id: c.id,
-          validated: compChecks[c.id] === true,
-        }));
-
-        const { error: pivotErr } = await supabase.from("apprenant_competences").insert(rowsToInsert);
-        if (pivotErr) {
-          setError(errorToMessage(pivotErr));
-          return;
-        }
-      }
-
-      const { error: delLinksErr } = await supabase.from("apprenant_sessions").delete().eq("org_id", orgId).eq("apprenant_id", selectedId);
-      if (delLinksErr) {
-        setError(errorToMessage(delLinksErr));
-        return;
-      }
-
-      if (selectedSessionIds.length > 0) {
-        const links = selectedSessionIds.map((sessionId) => ({
-          org_id: orgId,
-          apprenant_id: selectedId,
-          session_id: sessionId,
-        }));
-
-        const { error: insLinksErr } = await supabase.from("apprenant_sessions").insert(links);
-        if (insLinksErr) {
-          setError(errorToMessage(insLinksErr));
-          return;
-        }
-      }
-
-      setOpenEdit(false);
-      await loadRows();
-      await loadProductStats();
-    } catch (e: any) {
-      setError(errorToMessage(e));
-    } finally {
-      setSaving(false);
+    // ✅ FORCE le contexte org (RLS)
+    const ok = await ensureOrgContext(orgId);
+    if (!ok) {
+      setError("Contexte org non défini");
+      return;
     }
-  };
+
+    const payload = {
+      last_name: form.last_name.trim(),
+      first_name: form.first_name.trim(),
+      birth_date: form.birth_date || null,
+      email: form.email?.trim() || null,
+
+      product_id: form.product_id,
+      client_id: form.client_id,
+      structure: form.structure?.trim() || null,
+
+      start_date: form.start_date || null,
+      end_date: form.end_date || null,
+
+      street: form.street?.trim() || null,
+      postal_code: form.postal_code?.trim() || null,
+      city: form.city?.trim() || null,
+
+      forprev: form.forprev,
+      candidate_manual_validated: !!form.candidate_manual_validated,
+    };
+
+    // ✅ UPDATE PAR ID UNIQUEMENT
+    const { data, error } = await supabase
+      .from("apprenants")
+      .update(payload)
+      .eq("id", selectedId)
+      .select("id")
+      .maybeSingle();
+
+    if (error) {
+      setError(errorToMessage(error));
+      return;
+    }
+
+    if (!data?.id) {
+      setError("UPDATE non appliqué (0 ligne). RLS / org mismatch.");
+      return;
+    }
+
+    // 🔁 compétences
+    await supabase.from("apprenant_competences").delete().eq("apprenant_id", selectedId);
+
+    if (competences.length > 0) {
+      const rowsToInsert = competences.map((c) => ({
+        org_id: orgId,
+        apprenant_id: selectedId,
+        competence_id: c.id,
+        validated: compChecks[c.id] === true,
+      }));
+      await supabase.from("apprenant_competences").insert(rowsToInsert);
+    }
+
+    // 🔁 sessions
+    await supabase.from("apprenant_sessions").delete().eq("apprenant_id", selectedId);
+
+    if (selectedSessionIds.length > 0) {
+      const links = selectedSessionIds.map((sessionId) => ({
+        org_id: orgId,
+        apprenant_id: selectedId,
+        session_id: sessionId,
+      }));
+      await supabase.from("apprenant_sessions").insert(links);
+    }
+
+    setOpenEdit(false);
+    await loadRows();
+    await loadProductStats();
+  } finally {
+    setSaving(false);
+  }
+};
 
 // ===== MULTI ROW HELPERS (OBLIGATOIRES) =====
 
