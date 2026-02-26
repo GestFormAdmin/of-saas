@@ -153,9 +153,7 @@ function formatDurationFromHours(hours: number | null | undefined) {
   return splitHoursToDays(hours).label;
 }
 
-function formatDurationFromHours(hours: number | null | undefined) {
-  return splitHoursToDays(hours).label;
-}
+
 
 /* ================== URSSAF ================== */
 const URSSAF_RATE = 0.27;

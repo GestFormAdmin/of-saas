@@ -68,6 +68,19 @@ type LearnerRow = {
 };
 
 /* ================== HELPERS ================== */
+function errorToMessage(err: any) {
+  if (!err) return "Erreur inconnue";
+  if (typeof err === "string") return err;
+  if (err?.message) return String(err.message);
+  if (err?.error_description) return String(err.error_description);
+  if (err?.details) return String(err.details);
+  if (err?.hint) return String(err.hint);
+  try {
+    return JSON.stringify(err);
+  } catch {
+    return String(err);
+  }
+}
 const required = (v?: string | null) => !!v && v.trim().length > 0;
 const safeLower = (s?: string | null) => (s ?? "").toLowerCase();
 
@@ -710,17 +723,20 @@ export default function SessionsPage() {
     setFormError(null);
   }
 
-  function openViewModal(id: string) {
-    setSelectedId(id);
-    setOpenView(true);
-    void loadLearnersForSession(id);
-  }
-  function closeViewModal() {
-    setOpenView(false);
-    setSelectedId(null);
-    setViewLearners([]);
-    setViewLearnersError(null);
-  }
+// ✅ BLOC 2 — CORRECTION : remplacer openViewModal par un async qui charge les apprenants
+async function openViewModal(id: string) {
+  setSelectedId(id);
+  setOpenView(true);
+  await loadLearnersForSession(id);
+}
+  // ✅ BLOC 5 — CORRECTION : dans closeViewModal, on reset aussi le loading
+function closeViewModal() {
+  setOpenView(false);
+  setSelectedId(null);
+  setViewLearners([]);
+  setViewLearnersError(null);
+  setViewLearnersLoading(false);
+}
 
   function openEditModal(id: string) {
     const r = rows.find((x) => x.id === id);
@@ -909,54 +925,52 @@ export default function SessionsPage() {
     await fetchSessions();
   }
 
-  async function loadLearnersForSession(sessionId: string) {
-    setViewLearners([]);
-    setViewLearnersError(null);
-    setViewLearnersLoading(true);
+  // ✅ BLOC 3 — AJOUT : la vraie fonction loadLearnersForSession (celle qui alimente viewLearners + états)
+async function loadLearnersForSession(sessionId: string) {
+  setViewLearnersLoading(true);
+  setViewLearnersError(null);
 
-    try {
-      const org = await supabase.rpc("current_org_id");
-      const orgId2 = org.data as string | null;
-      if (!orgId2) {
-        setViewLearnersError("Organisation introuvable.");
-        return;
-      }
+  try {
+    // 1) pivot -> ids apprenants
+    const { data: links, error: linkErr } = await supabase
+      .from("apprenant_sessions")
+      .select("apprenant_id")
+      .eq("session_id", sessionId);
 
-      const { data: links, error: linkErr } = await supabase
-        .from("apprenant_sessions")
-        .select("apprenant_id")
-        .eq("org_id", orgId2)
-        .eq("session_id", sessionId);
-
-      if (linkErr) {
-        setViewLearnersError(linkErr.message);
-        return;
-      }
-
-      const apprenantIds = (links ?? []).map((x: any) => x.apprenant_id).filter(Boolean);
-
-      if (apprenantIds.length === 0) {
-        setViewLearners([]);
-        return;
-      }
-
-      const { data: apprenants, error: apprErr } = await supabase
-        .from("apprenants")
-        .select("id,last_name,first_name,email")
-        .eq("org_id", orgId2)
-        .in("id", apprenantIds)
-        .order("last_name", { ascending: true });
-
-      if (apprErr) {
-        setViewLearnersError(apprErr.message);
-        return;
-      }
-
-      setViewLearners((apprenants ?? []) as any[]);
-    } finally {
-      setViewLearnersLoading(false);
+    if (linkErr) {
+      setViewLearners([]);
+      setViewLearnersError(errorToMessage(linkErr));
+      return;
     }
+
+    const apprenantIds = (links ?? []).map((x: any) => x.apprenant_id).filter(Boolean);
+
+    if (apprenantIds.length === 0) {
+      setViewLearners([]);
+      return;
+    }
+
+    // 2) ids -> infos apprenants
+    const { data: apprenants, error: apprErr } = await supabase
+      .from("apprenants")
+      .select("id, first_name, last_name, email")
+      .in("id", apprenantIds)
+      .order("last_name");
+
+    if (apprErr) {
+      setViewLearners([]);
+      setViewLearnersError(errorToMessage(apprErr));
+      return;
+    }
+
+    setViewLearners((apprenants ?? []) as LearnerRow[]);
+  } catch (e: any) {
+    setViewLearners([]);
+    setViewLearnersError(errorToMessage(e));
+  } finally {
+    setViewLearnersLoading(false);
   }
+}
 
   return (
     <div id="sessions-new-ui-root" style={containerStyle}>
