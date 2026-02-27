@@ -3,6 +3,7 @@
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 export const revalidate = 0;
+
 import { createClient } from "@supabase/supabase-js";
 import { NextResponse } from "next/server";
 import archiver from "archiver";
@@ -13,27 +14,19 @@ import { createSupabaseRouteClient } from "@/lib/supabase/route";
 /* ---------------- EXPORT CONFIG ---------------- */
 
 const EXPORT_SPEC = [
-  // user
   { name: "profiles", filter: { column: "id", by: "user_id" } },
-
-  // org (table réelle dans ta DB)
   { name: "organizations", filter: { column: "id", by: "org_id" } },
   { name: "memberships", filter: { column: "org_id", by: "org_id" } },
-
-  // core
   { name: "clients", filter: { column: "org_id", by: "org_id" } },
   { name: "products", filter: { column: "org_id", by: "org_id" } },
   { name: "sessions", filter: { column: "org_id", by: "org_id" } },
   { name: "apprenants", filter: { column: "org_id", by: "org_id" } },
-
-  // dépenses / facturation / documents
+  { name: "apprenants_full", filter: { column: "org_id", by: "org_id" } },
   { name: "expenses", filter: { column: "org_id", by: "org_id" } },
   { name: "factures", filter: { column: "org_id", by: "org_id" } },
   { name: "invoices", filter: { column: "org_id", by: "org_id" } },
   { name: "billing_documents", filter: { column: "org_id", by: "org_id" } },
   { name: "documents", filter: { column: "org_id", by: "org_id" } },
-
-  // liaisons utiles
   { name: "apprenant_sessions", filter: { column: "org_id", by: "org_id" } },
   { name: "session_attendees", filter: { column: "org_id", by: "org_id" } },
   { name: "session_learners", filter: { column: "org_id", by: "org_id" } },
@@ -42,33 +35,49 @@ const EXPORT_SPEC = [
 
 /* ---------------- HELPERS ---------------- */
 
-function csvEscape(value: unknown) {
-  if (value === null || value === undefined) return "";
-  const s = String(value);
+function csvEscape(v: unknown) {
+  if (v === null || v === undefined) return "";
+  const s = String(v);
   if (/[",\n\r]/.test(s)) return `"${s.replace(/"/g, '""')}"`;
   return s;
+}
+
+function normalizeRows(rows: any[]) {
+  if (!rows.length) return rows;
+  const keys = Array.from(new Set(rows.flatMap((r) => Object.keys(r || {}))));
+  return rows.map((r) => {
+    const o: Record<string, any> = {};
+    for (const k of keys) o[k] = r?.[k] ?? "";
+    return o;
+  });
 }
 
 function toCsv(rows: Array<Record<string, unknown>>) {
   if (!rows.length) return "";
   const headers = Object.keys(rows[0]);
-
-  return [headers.join(","), ...rows.map((r) => headers.map((h) => csvEscape(r[h])).join(","))].join("\n");
+  return [
+    headers.join(","),
+    ...rows.map((r) => headers.map((h) => csvEscape(r[h])).join(",")),
+  ].join("\n");
 }
 
-/* ---------------- AUTH / CONTEXT ---------------- */
+/* ---------------- AUTH ---------------- */
 
 async function getUserAndCurrentOrgId(supabase: any) {
-  const { data, error } = await supabase.auth.getUser();
-  if (error || !data?.user) throw new Error("UNAUTHORIZED");
+  const { data } = await supabase.auth.getUser();
+  if (!data?.user) throw new Error("UNAUTHORIZED");
 
-  const { data: ctx, error: ctxErr } = await supabase.rpc("get_my_account_context_v2");
-  if (ctxErr) throw new Error(ctxErr.message);
+  const userId = data.user.id;
 
-  const row = Array.isArray(ctx) ? ctx[0] : ctx;
-  if (!row?.current_org_id) throw new Error("NO_CURRENT_ORG");
+  const { data: prof } = await supabase
+    .from("profiles")
+    .select("current_org_id")
+    .eq("id", userId)
+    .maybeSingle();
 
-  return { userId: data.user.id, orgId: row.current_org_id as string };
+  if (!prof?.current_org_id) throw new Error("NO_CURRENT_ORG");
+
+  return { userId, orgId: prof.current_org_id as string };
 }
 
 /* ---------------- DATA FETCH ---------------- */
@@ -80,8 +89,22 @@ async function fetchTable(
   orgId: string,
   filter?: { column: string; by: "org_id" | "user_id" }
 ) {
-  let q = supabase.from(table).select("*");
+  if (table === "apprenants") {
+    const { data, error } = await supabase.rpc("export_apprenants_json", { _org_id: orgId });
+    if (error) return { __error: error.message };
+    return data ?? [];
+  }
 
+  if (table === "apprenants_full") {
+    const { data, error } = await supabase
+      .from("apprenants")
+      .select("*")
+      .eq("org_id", orgId);
+    if (error) return { __error: error.message };
+    return data ?? [];
+  }
+
+  let q = supabase.from(table).select("*");
   if (filter?.by === "user_id") q = q.eq(filter.column, userId);
   if (filter?.by === "org_id") q = q.eq(filter.column, orgId);
 
@@ -95,94 +118,83 @@ function createSupabaseFromBearer(req: Request) {
   const token = auth.toLowerCase().startsWith("bearer ") ? auth.slice(7) : null;
   if (!token) return null;
 
-  const url = process.env.NEXT_PUBLIC_SUPABASE_URL!;
-  const anon = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!;
-
-  return createClient(url, anon, {
-    global: { headers: { Authorization: `Bearer ${token}` } },
-    auth: { persistSession: false, autoRefreshToken: false },
-  });
+  return createClient(
+    process.env.NEXT_PUBLIC_SUPABASE_URL!,
+    process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
+    {
+      global: { headers: { Authorization: `Bearer ${token}` } },
+      auth: { persistSession: false },
+    }
+  );
 }
+
+/* ---------------- ROUTE ---------------- */
 
 export async function GET(req: Request) {
   const format = new URL(req.url).searchParams.get("format") || "csv";
 
-  try {
-const supabase =
-  createSupabaseFromBearer(req) ?? (await createSupabaseRouteClient());    const { userId, orgId } = await getUserAndCurrentOrgId(supabase);
+  const supabase =
+    createSupabaseFromBearer(req) ?? (await createSupabaseRouteClient());
 
-    const payload: Record<string, any> = {};
-    const errors: Array<{ table: string; error: string }> = [];
+  const { userId, orgId } = await getUserAndCurrentOrgId(supabase);
 
-    for (const spec of EXPORT_SPEC) {
-      const res = await fetchTable(supabase, spec.name, userId, orgId, spec.filter);
-      if ((res as any)?.__error) {
-        errors.push({ table: spec.name, error: (res as any).__error });
-        payload[spec.name] = [];
-      } else {
-        payload[spec.name] = res;
-      }
+  const payload: Record<string, any[]> = {};
+  const errors: any[] = [];
+
+  for (const spec of EXPORT_SPEC) {
+    const res = await fetchTable(supabase, spec.name, userId, orgId, spec.filter);
+    if ((res as any)?.__error) {
+      errors.push({ table: spec.name, error: (res as any).__error });
+      payload[spec.name] = [];
+    } else {
+      payload[spec.name] = normalizeRows(res as any[]);
     }
+  }
 
-    const stamp = new Date().toISOString().slice(0, 10);
-    const baseName = `export_${stamp}`;
+  const stamp = new Date().toISOString().slice(0, 10);
+  const baseName = `export_${stamp}`;
 
-    /* ---- XLSX ---- */
-    if (format === "xlsx") {
-      const wb = new ExcelJS.Workbook();
-
-      for (const [table, rows] of Object.entries(payload)) {
-        const ws = wb.addWorksheet(table.slice(0, 31));
-        if (!rows.length) {
-          ws.addRow(["(vide)"]);
-          continue;
-        }
-
-        const headers = Object.keys(rows[0]);
-        ws.addRow(headers).font = { bold: true };
-        (rows as any[]).forEach((r: any) => ws.addRow(headers.map((h) => r[h] ?? "")));
-      }
-
-      if (errors.length) {
-        const ws = wb.addWorksheet("_errors");
-        ws.addRow(["table", "error"]).font = { bold: true };
-        errors.forEach((e) => ws.addRow([e.table, e.error]));
-      }
-
-      const buffer = await wb.xlsx.writeBuffer();
-      return new NextResponse(buffer as any, {
-        headers: {
-          "Content-Type": "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-          "Content-Disposition": `attachment; filename="${baseName}.xlsx"`,
-        },
-      });
-    }
-
-    /* ---- CSV ZIP ---- */
-    const pass = new PassThrough();
-    const archive = archiver("zip", { zlib: { level: 9 } });
-    archive.pipe(pass);
+  /* ---- XLSX ---- */
+  if (format === "xlsx") {
+    const wb = new ExcelJS.Workbook();
 
     for (const [table, rows] of Object.entries(payload)) {
-      archive.append(toCsv(rows as any), { name: `${table}.csv` });
+      const ws = wb.addWorksheet(table.slice(0, 31));
+      if (!rows.length) {
+        ws.addRow(["(vide)"]);
+        continue;
+      }
+      const headers = Object.keys(rows[0]);
+      ws.addRow(headers).font = { bold: true };
+      rows.forEach((r) => ws.addRow(headers.map((h) => r[h])));
     }
-    if (errors.length) archive.append(toCsv(errors as any), { name: `_errors.csv` });
 
-    await archive.finalize();
-
-    return new NextResponse(Readable.toWeb(pass) as any, {
+    const buffer = await wb.xlsx.writeBuffer();
+    return new NextResponse(buffer as any, {
       headers: {
-        "Content-Type": "application/zip",
-        "Content-Disposition": `attachment; filename="${baseName}_csv.zip"`,
+        "Content-Type":
+          "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        "Content-Disposition": `attachment; filename="${baseName}.xlsx"`,
       },
     });
-  } catch (e: any) {
-    if (e.message === "UNAUTHORIZED") {
-      return NextResponse.json({ ok: false, error: "Unauthorized" }, { status: 401 });
-    }
-    if (e.message === "NO_CURRENT_ORG") {
-      return NextResponse.json({ ok: false, error: "No current org selected" }, { status: 400 });
-    }
-    return NextResponse.json({ ok: false, error: e.message }, { status: 500 });
   }
+
+  /* ---- CSV ZIP ---- */
+  const pass = new PassThrough();
+  const archive = archiver("zip", { zlib: { level: 9 } });
+  archive.pipe(pass);
+
+  for (const [table, rows] of Object.entries(payload)) {
+    archive.append(toCsv(rows), { name: `${table}.csv` });
+  }
+  if (errors.length) archive.append(toCsv(errors), { name: `_errors.csv` });
+
+  await archive.finalize();
+
+  return new NextResponse(Readable.toWeb(pass) as any, {
+    headers: {
+      "Content-Type": "application/zip",
+      "Content-Disposition": `attachment; filename="${baseName}_csv.zip"`,
+    },
+  });
 }

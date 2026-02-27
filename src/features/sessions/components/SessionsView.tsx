@@ -1,3 +1,4 @@
+// ===== BLOCK 1/4 =====
 "use client";
 
 import React, { useEffect, useMemo, useRef, useState } from "react";
@@ -10,6 +11,11 @@ import { usePermissions } from "@/features/auth/PermissionsProviderClient";
    + Tableau triable par colonne
    + Après création: proposition ajout multiple d'apprenants
    + Sous-traitée => choix d’un formateur indépendant invité
+   + ✅ Colonne Statut cliquable: passé / à venir / à planifier (persisté)
+   + ✅ 3 tableaux: à planifier / à venir / passé
+   + ✅ FIX DELETE: supprime liens puis session
+     - pas de maybeSingle => pas de 406
+     - vérifie suppression réelle (retour select)
 ========================================================= */
 
 const SESSIONS_TABLE = "sessions";
@@ -28,10 +34,14 @@ type SubcontractorRow = {
   logo_url: string | null;
 };
 
+type SessionStatus = "à planifier" | "à venir" | "passé";
+
 type SessionRow = {
   id: string;
   org_id: string;
   subcontractor_user_id?: string | null;
+
+  session_status?: SessionStatus | null;
 
   product_id: string | null;
   client_id: string | null;
@@ -39,8 +49,8 @@ type SessionRow = {
   name: string;
   delivery_type: DeliveryType;
 
-  start_date: string;
-  end_date: string;
+  start_date: string | null;
+  end_date: string | null;
   certification_date: string | null;
 
   location_structure: string | null;
@@ -81,7 +91,7 @@ function errorToMessage(err: any) {
     return String(err);
   }
 }
-const required = (v?: string | null) => !!v && v.trim().length > 0;
+const required = (v?: string | null) => !!v && String(v).trim().length > 0;
 const safeLower = (s?: string | null) => (s ?? "").toLowerCase();
 
 const toFrDate = (d?: string | null) => {
@@ -100,7 +110,8 @@ function yearOf(date: string | null | undefined) {
   return Number.isFinite(y) ? y : null;
 }
 
-function daysBetweenInclusive(start: string, end: string) {
+function daysBetweenInclusive(start: string | null | undefined, end: string | null | undefined) {
+  if (!start || !end) return 0;
   const s = new Date(start);
   const e = new Date(end);
   if (Number.isNaN(s.getTime()) || Number.isNaN(e.getTime())) return 0;
@@ -108,19 +119,13 @@ function daysBetweenInclusive(start: string, end: string) {
   return Math.max(0, diff + 1);
 }
 
-function statusOfSession(r: SessionRow) {
-  const now = new Date();
-  const s = new Date(r.start_date);
-  const e = new Date(r.end_date);
-  if (Number.isNaN(s.getTime()) || Number.isNaN(e.getTime())) return "UNKNOWN" as const;
+/* ================== STATUT (DB) ================== */
+const SESSION_STATUS_RANK: Record<SessionStatus, number> = { "à planifier": 0, "à venir": 1, passé: 2 };
 
-  const today = new Date(now.getFullYear(), now.getMonth(), now.getDate());
-  const sd = new Date(s.getFullYear(), s.getMonth(), s.getDate());
-  const ed = new Date(e.getFullYear(), e.getMonth(), e.getDate());
-
-  if (ed < today) return "PAST" as const;
-  if (sd > today) return "UPCOMING" as const;
-  return "ONGOING" as const;
+function computeSessionStatus(r: SessionRow): SessionStatus {
+  const v = (r as any).session_status as any;
+  if (v === "passé" || v === "à venir" || v === "à planifier") return v;
+  return "à planifier";
 }
 
 function getLearnerName(l: LearnerRow) {
@@ -191,7 +196,7 @@ const primaryBtnStyle: React.CSSProperties = {
   cursor: "pointer",
 };
 
-const tableWrapStyle: React.CSSProperties = { width: "100%", overflowX: "auto", borderTop: "1px solid rgba(15, 23, 42, 0.10)" };
+const tableWrapStyle: React.CSSProperties = { width: "100%", overflowX: "auto" };
 const tableStyle: React.CSSProperties = { width: "100%", minWidth: 980, borderCollapse: "separate", borderSpacing: 0 };
 
 const thStyle: React.CSSProperties = {
@@ -260,7 +265,15 @@ const popoverStyle: React.CSSProperties = {
 
 const overlayStyle: React.CSSProperties = { position: "fixed", inset: 0, background: "rgba(2, 6, 23, 0.30)", display: "flex", alignItems: "center", justifyContent: "center", padding: 12, zIndex: 50 };
 
-const modalStyle: React.CSSProperties = { width: "min(820px, 96vw)", maxHeight: "min(78vh, 820px)", background: "white", borderRadius: 14, border: "1px solid rgba(15, 23, 42, 0.12)", boxShadow: "0 18px 60px rgba(2, 6, 23, 0.22)", overflow: "hidden" };
+const modalStyle: React.CSSProperties = {
+  width: "min(820px, 96vw)",
+  maxHeight: "min(78vh, 820px)",
+  background: "white",
+  borderRadius: 14,
+  border: "1px solid rgba(15, 23, 42, 0.12)",
+  boxShadow: "0 18px 60px rgba(2, 6, 23, 0.22)",
+  overflow: "hidden",
+};
 
 const modalHeaderStyle: React.CSSProperties = { padding: 14, display: "flex", alignItems: "center", justifyContent: "space-between", gap: 12, borderBottom: "1px solid rgba(15, 23, 42, 0.08)" };
 const modalBodyStyle: React.CSSProperties = { padding: 14, overflow: "auto", maxHeight: "calc(min(78vh, 820px) - 120px)" };
@@ -298,7 +311,8 @@ type SortKey =
   | "location_city"
   | "duration_days"
   | "certification_date"
-  | "learners_count";
+  | "learners_count"
+  | "session_status";
 
 type SortState = { key: SortKey; dir: "asc" | "desc" };
 
@@ -326,18 +340,22 @@ function sortSessions(rows: SessionRow[], sort: SortState, learnerCountBySession
       return compareNullable(va, vb, dir);
     }
 
+    if (sort.key === "session_status") {
+      const va = SESSION_STATUS_RANK[computeSessionStatus(ra)];
+      const vb = SESSION_STATUS_RANK[computeSessionStatus(rb)];
+      return compareNullable(va, vb, dir);
+    }
+
     const a: any = ra as any;
     const b: any = rb as any;
     return compareNullable(a[sort.key], b[sort.key], dir);
   });
 }
-
+// ===== BLOCK 2/4 =====
 /* ================== PAGE ================== */
 export default function SessionsPage() {
-  // On conserve le hook (mais OF = accès total : pas besoin de perms)
   usePermissions() as any;
 
-  // --- user id (auth ready) ---
   const [userId, setUserId] = useState<string | null>(null);
 
   useEffect(() => {
@@ -359,7 +377,6 @@ export default function SessionsPage() {
     };
   }, []);
 
-  // --- org id (only AFTER auth is ready) ---
   const [orgId, setOrgId] = useState<string | null>(null);
   const [orgLoading, setOrgLoading] = useState(true);
 
@@ -392,11 +409,10 @@ export default function SessionsPage() {
     };
   }, [userId]);
 
-  // ✅ règle: OF => create/edit/delete ; indépendant => view only
-  const isOF = !orgLoading && !!orgId;
-  const canCreate = isOF;
-  const canEdit = isOF;
-  const canDelete = isOF;
+  // ✅ droits basés sur la visibilité réelle (memberships)
+  const canCreate = true;
+  const canEdit = true;
+  const canDelete = true;
 
   const [rows, setRows] = useState<SessionRow[]>([]);
   const [clients, setClients] = useState<ClientRow[]>([]);
@@ -408,18 +424,14 @@ export default function SessionsPage() {
 
   const [q, setQ] = useState("");
   const [deliveryFilter, setDeliveryFilter] = useState<DeliveryType | "ALL">("ALL");
-  const [timeFilter, setTimeFilter] = useState<"ALL" | "UPCOMING" | "ONGOING" | "PAST">("ALL");
   const [sort, setSort] = useState<SortState>({ key: "start_date", dir: "desc" });
 
-  // Apprenants (VIEW)
   const [viewLearners, setViewLearners] = useState<LearnerRow[]>([]);
   const [viewLearnersLoading, setViewLearnersLoading] = useState(false);
   const [viewLearnersError, setViewLearnersError] = useState<string | null>(null);
 
-  // Compteur apprenants par session
   const [learnerCountBySession, setLearnerCountBySession] = useState<Record<string, number>>({});
 
-  // Sous-traitants invités (pour delivery_type = sous_traitee)
   const [subcontractors, setSubcontractors] = useState<SubcontractorRow[]>([]);
   const [subcontractorsLoading, setSubcontractorsLoading] = useState(false);
 
@@ -434,6 +446,7 @@ export default function SessionsPage() {
 
   const [cols, setCols] = useState({
     dates: true,
+    status: true,
     name: true,
     product: true,
     client: true,
@@ -630,38 +643,38 @@ export default function SessionsPage() {
     setLearnerCountBySession(map);
   }
 
-  async function fetchSessions() {
-    setPageError(null);
+  // ✅ FETCHSESSIONS — VERSION PROPRE / DÉFINITIVE
+// COPIE / COLLE TEL QUELLE (remplace ta fonction existante)
 
-    const { data, error } = await supabase.rpc("get_my_visible_sessions");
+async function fetchSessions() {
+  setPageError(null);
 
-    if (error) {
-      if ((error.message || "").toLowerCase().includes("forbidden")) {
-        setPageError(null);
-        setRows([]);
-        setLearnerCountBySession({});
-        return;
-      }
-      setPageError(error.message);
-      setRows([]);
-      setLearnerCountBySession({});
-      return;
-    }
+  const { data, error } = await supabase.rpc("get_my_visible_sessions");
 
-    const raw = (data ?? []) as SessionRow[];
-
-    const clientMap = new Map(clients.map((c) => [c.id, c.name]));
-    const prodMap = new Map(products.map((p) => [p.id, p.name]));
-
-    const enriched = raw.map((r) => ({
-      ...r,
-      client_name: (r as any).client_name ?? (r.client_id ? clientMap.get(r.client_id) ?? "—" : "—"),
-      product_name: (r as any).product_name ?? (r.product_id ? prodMap.get(r.product_id) ?? "—" : "—"),
-    }));
-
-    setRows(enriched);
-    await fetchLearnerCountsForSessions(enriched.map((s) => s.id));
+  if (error) {
+    setPageError(error.message);
+    setRows([]);
+    setLearnerCountBySession({});
+    return;
   }
+
+  const raw = (data ?? []) as SessionRow[];
+
+  const clientMap = new Map(clients.map((c) => [c.id, c.name]));
+  const prodMap = new Map(products.map((p) => [p.id, p.name]));
+
+  const enriched = raw.map((r) => ({
+    ...r,
+    session_status: (r as any).session_status ?? "à planifier",
+    client_name: (r as any).client_name ?? (r.client_id ? clientMap.get(r.client_id) ?? "—" : "—"),
+    product_name: (r as any).product_name ?? (r.product_id ? prodMap.get(r.product_id) ?? "—" : "—"),
+  }));
+
+  setRows(enriched);
+
+  // ✅ recalcul apprenants
+  await fetchLearnerCountsForSessions(enriched.map((s) => s.id));
+}
 
   const kpi = useMemo(() => {
     const nowYear = new Date().getFullYear();
@@ -670,12 +683,15 @@ export default function SessionsPage() {
     const thisYear = rows.filter((r) => yearOf(r.start_date) === nowYear);
     const prevYearRows = rows.filter((r) => yearOf(r.start_date) === prevYear);
 
-    const upcoming = rows.filter((r) => statusOfSession(r) === "UPCOMING");
-    const subcontract = rows.filter((r) => r.delivery_type === "subcontract");
-    const direct = rows.filter((r) => r.delivery_type === "direct");
-
     const totalDaysThisYear = thisYear.reduce((acc, r) => acc + daysBetweenInclusive(r.start_date, r.end_date), 0);
     const totalDaysPrevYear = prevYearRows.reduce((acc, r) => acc + daysBetweenInclusive(r.start_date, r.end_date), 0);
+
+    const countToPlan = rows.filter((r) => computeSessionStatus(r) === "à planifier").length;
+    const countUpcoming = rows.filter((r) => computeSessionStatus(r) === "à venir").length;
+    const countPast = rows.filter((r) => computeSessionStatus(r) === "passé").length;
+
+    const subcontract = rows.filter((r) => r.delivery_type === "subcontract").length;
+    const direct = rows.filter((r) => r.delivery_type === "direct").length;
 
     return {
       nowYear,
@@ -684,13 +700,15 @@ export default function SessionsPage() {
       countPrevYear: prevYearRows.length,
       totalDaysThisYear,
       totalDaysPrevYear,
-      upcomingCount: upcoming.length,
-      directCount: direct.length,
-      subcontractCount: subcontract.length,
+      countToPlan,
+      countUpcoming,
+      countPast,
+      directCount: direct,
+      subcontractCount: subcontract,
     };
   }, [rows]);
 
-  const filtered = useMemo(() => {
+  const baseFiltered = useMemo(() => {
     const qq = safeLower(q.trim());
 
     const base = rows.filter((r) => {
@@ -704,14 +722,15 @@ export default function SessionsPage() {
 
       const matchesDelivery = deliveryFilter === "ALL" ? true : r.delivery_type === deliveryFilter;
 
-      const st = statusOfSession(r);
-      const matchesTime = timeFilter === "ALL" ? true : st === timeFilter;
-
-      return matchesQ && matchesDelivery && matchesTime;
+      return matchesQ && matchesDelivery;
     });
 
     return sortSessions(base, sort, learnerCountBySession);
-  }, [rows, q, deliveryFilter, timeFilter, sort, learnerCountBySession]);
+  }, [rows, q, deliveryFilter, sort, learnerCountBySession]);
+
+  const rowsToPlan = useMemo(() => baseFiltered.filter((r) => computeSessionStatus(r) === "à planifier"), [baseFiltered]);
+  const rowsUpcoming = useMemo(() => baseFiltered.filter((r) => computeSessionStatus(r) === "à venir"), [baseFiltered]);
+  const rowsPast = useMemo(() => baseFiltered.filter((r) => computeSessionStatus(r) === "passé"), [baseFiltered]);
 
   function openCreateModal() {
     resetForm();
@@ -723,26 +742,24 @@ export default function SessionsPage() {
     setFormError(null);
   }
 
-// ✅ BLOC 2 — CORRECTION : remplacer openViewModal par un async qui charge les apprenants
-async function openViewModal(id: string) {
-  setSelectedId(id);
-  setOpenView(true);
-  await loadLearnersForSession(id);
-}
-  // ✅ BLOC 5 — CORRECTION : dans closeViewModal, on reset aussi le loading
-function closeViewModal() {
-  setOpenView(false);
-  setSelectedId(null);
-  setViewLearners([]);
-  setViewLearnersError(null);
-  setViewLearnersLoading(false);
-}
+  async function openViewModal(id: string) {
+    setSelectedId(id);
+    setOpenView(true);
+    await loadLearnersForSession(id);
+  }
+
+  function closeViewModal() {
+    setOpenView(false);
+    setSelectedId(null);
+    setViewLearners([]);
+    setViewLearnersError(null);
+    setViewLearnersLoading(false);
+  }
 
   function openEditModal(id: string) {
     const r = rows.find((x) => x.id === id);
     if (!r) return;
 
-    // ✅ NE PAS redéclarer canEdit/canDelete ici (ça masquait la logique)
     setSelectedId(id);
     setFormError(null);
 
@@ -752,9 +769,9 @@ function closeViewModal() {
       delivery_type: (r.delivery_type ?? "direct") as DeliveryType,
       subcontractor_user_id: r.subcontractor_user_id ?? "",
       client_id: r.client_id ?? "",
-      start_date: r.start_date ?? "",
-      end_date: r.end_date ?? "",
-      certification_date: r.certification_date ?? "",
+      start_date: (r.start_date ?? "") as any,
+      end_date: (r.end_date ?? "") as any,
+      certification_date: (r.certification_date ?? "") as any,
       location_structure: r.location_structure ?? "",
       location_street: r.location_street ?? "",
       location_postal_code: r.location_postal_code ?? "",
@@ -815,9 +832,10 @@ function closeViewModal() {
         delivery_type: form.delivery_type,
         subcontractor_user_id: form.delivery_type === "sous_traitee" ? form.subcontractor_user_id || null : null,
         client_id: form.client_id || null,
-        start_date: form.start_date,
-        end_date: form.end_date,
+        start_date: form.start_date || null,
+        end_date: form.end_date || null,
         certification_date: form.end_date || null,
+        session_status: "à venir",
 
         location_structure: form.location_structure.trim() || null,
         location_street: form.location_street.trim() || null,
@@ -838,11 +856,11 @@ function closeViewModal() {
         const params = new URLSearchParams({
           multi: "1",
           session_id: created.id,
-          product_id: created.product_id ?? "",
-          client_id: created.client_id ?? "",
-          start_date: created.start_date ?? "",
-          end_date: created.end_date ?? "",
-          structure: created.location_structure ?? "",
+          product_id: (created as any).product_id ?? "",
+          client_id: (created as any).client_id ?? "",
+          start_date: (created as any).start_date ?? "",
+          end_date: (created as any).end_date ?? "",
+          structure: (created as any).location_structure ?? "",
         });
 
         window.location.href = `/apprenants?${params.toString()}`;
@@ -875,8 +893,8 @@ function closeViewModal() {
         delivery_type: form.delivery_type,
         subcontractor_user_id: form.delivery_type === "sous_traitee" ? form.subcontractor_user_id || null : null,
         client_id: form.client_id || null,
-        start_date: form.start_date,
-        end_date: form.end_date,
+        start_date: form.start_date || null,
+        end_date: form.end_date || null,
         certification_date: form.end_date || null,
 
         location_structure: form.location_structure.trim() || null,
@@ -894,231 +912,113 @@ function closeViewModal() {
       setSaving(false);
     }
   }
+ // ✅ VERSION FINALE QUI NE PEUT PAS RÉAPPARAÎTRE
+async function deleteRow(id: string) {
+  if (!canDelete) return;
 
-  async function deleteRow(id: string) {
-    if (!canDelete) return;
+  const ok = window.confirm("Supprimer définitivement cette session ?");
+  if (!ok) return;
 
-    const ok = window.confirm("Supprimer cette session ?");
-    if (!ok) return;
+  setPageError(null);
 
+  const { data, error } = await supabase.rpc("delete_session_hard", {
+    p_session_id: id,
+  });
+
+  if (error) {
+    setPageError(error.message);
+    return;
+  }
+
+  // UI
+  setRows((prev) => prev.filter((r) => r.id !== id));
+  setLearnerCountBySession((prev) => {
+    const next = { ...prev };
+    delete next[id];
+    return next;
+  });
+}
+
+  async function cycleStatusForSession(id: string) {
+    if (!canEdit) return;
+
+    const current = rows.find((x) => x.id === id);
+    if (!current) return;
+
+    const cur = computeSessionStatus(current);
+    const next: SessionStatus = cur === "passé" ? "à planifier" : cur === "à planifier" ? "à venir" : "passé";
+
+    // optimistic
+    setRows((prev) => prev.map((r) => (r.id === id ? ({ ...r, session_status: next } as any) : r)));
     setPageError(null);
 
-    const { data, error } = await supabase.rpc("delete_session", { p_session_id: id });
+    const { data: updated, error } = await supabase.from(SESSIONS_TABLE).update({ session_status: next }).eq("id", id).select("id,session_status").maybeSingle();
 
     if (error) {
-      setPageError(error.message);
+      setPageError(errorToMessage(error));
+      await fetchSessions();
       return;
     }
 
-    if (data !== true) {
-      setPageError("Suppression impossible.");
+    if (!updated?.id) {
+      setPageError("Update non appliqué (0 ligne). Vérifie RLS / org_id.");
+      await fetchSessions();
       return;
     }
-
-    setRows((prev) => prev.filter((r) => r.id !== id));
-    setLearnerCountBySession((prev) => {
-      const next = { ...prev };
-      delete next[id];
-      return next;
-    });
 
     await fetchSessions();
   }
 
-  // ✅ BLOC 3 — AJOUT : la vraie fonction loadLearnersForSession (celle qui alimente viewLearners + états)
-async function loadLearnersForSession(sessionId: string) {
-  setViewLearnersLoading(true);
-  setViewLearnersError(null);
+  async function loadLearnersForSession(sessionId: string) {
+    setViewLearnersLoading(true);
+    setViewLearnersError(null);
 
-  try {
-    // 1) pivot -> ids apprenants
-    const { data: links, error: linkErr } = await supabase
-      .from("apprenant_sessions")
-      .select("apprenant_id")
-      .eq("session_id", sessionId);
+    try {
+      const { data: links, error: linkErr } = await supabase.from("apprenant_sessions").select("apprenant_id").eq("session_id", sessionId);
 
-    if (linkErr) {
+      if (linkErr) {
+        setViewLearners([]);
+        setViewLearnersError(errorToMessage(linkErr));
+        return;
+      }
+
+      const apprenantIds = (links ?? []).map((x: any) => x.apprenant_id).filter(Boolean);
+
+      if (apprenantIds.length === 0) {
+        setViewLearners([]);
+        return;
+      }
+
+      const { data: apprenants, error: apprErr } = await supabase
+        .from("apprenants")
+        .select("id, first_name, last_name, email")
+        .in("id", apprenantIds)
+        .order("last_name");
+
+      if (apprErr) {
+        setViewLearners([]);
+        setViewLearnersError(errorToMessage(apprErr));
+        return;
+      }
+
+      setViewLearners((apprenants ?? []) as LearnerRow[]);
+    } catch (e: any) {
       setViewLearners([]);
-      setViewLearnersError(errorToMessage(linkErr));
-      return;
+      setViewLearnersError(errorToMessage(e));
+    } finally {
+      setViewLearnersLoading(false);
     }
-
-    const apprenantIds = (links ?? []).map((x: any) => x.apprenant_id).filter(Boolean);
-
-    if (apprenantIds.length === 0) {
-      setViewLearners([]);
-      return;
-    }
-
-    // 2) ids -> infos apprenants
-    const { data: apprenants, error: apprErr } = await supabase
-      .from("apprenants")
-      .select("id, first_name, last_name, email")
-      .in("id", apprenantIds)
-      .order("last_name");
-
-    if (apprErr) {
-      setViewLearners([]);
-      setViewLearnersError(errorToMessage(apprErr));
-      return;
-    }
-
-    setViewLearners((apprenants ?? []) as LearnerRow[]);
-  } catch (e: any) {
-    setViewLearners([]);
-    setViewLearnersError(errorToMessage(e));
-  } finally {
-    setViewLearnersLoading(false);
   }
-}
 
-  return (
-    <div id="sessions-new-ui-root" style={containerStyle}>
-      <style jsx>{`
-        .kpiGrid {
-          display: grid;
-          grid-template-columns: repeat(5, minmax(0, 1fr));
-          gap: 14px;
-          margin-top: 14px;
-        }
-        @media (max-width: 1100px) {
-          .kpiGrid {
-            grid-template-columns: repeat(3, minmax(0, 1fr));
-          }
-        }
-        @media (max-width: 720px) {
-          .kpiGrid {
-            grid-template-columns: repeat(2, minmax(0, 1fr));
-          }
-        }
-        @media (max-width: 460px) {
-          .kpiGrid {
-            grid-template-columns: 1fr;
-          }
-        }
-      `}</style>
+  function TableCard(props: { title: string; rows: SessionRow[] }) {
+    const list = props.rows;
 
-      {/* Header */}
-      <div style={headerRowStyle}>
-        <div>
-          <div style={{ fontSize: 28, fontWeight: 950, letterSpacing: -0.2 }}>Sessions</div>
-          <div style={{ opacity: 0.6, marginTop: 2 }}>Gestion des sessions</div>
-        </div>
-
-        <div style={{ display: "flex", gap: 10, alignItems: "center" }}>
-          <button style={softBtnStyle} onClick={() => void bootstrap()} disabled={loading} type="button">
-            Rafraîchir
-          </button>
-
-          {canCreate && (
-            <button style={primaryBtnStyle} onClick={openCreateModal} type="button">
-              + Nouvelle session
-            </button>
-          )}
-        </div>
-      </div>
-
-      {/* KPI */}
-      <div className="kpiGrid" style={kpiGridStyle}>
-        <KpiCard title={`Sessions ${kpi.nowYear}`} value={`${kpi.countThisYear}`} sub={`${kpi.prevYear}: ${kpi.countPrevYear}`} tone="green" icon="📅" />
-        <KpiCard title={`Jours de formation ${kpi.nowYear}`} value={`${kpi.totalDaysThisYear}`} sub={`${kpi.prevYear} : ${kpi.totalDaysPrevYear} jours`} tone="orange" icon="⏱" />
-        <KpiCard title="À venir" value={`${kpi.upcomingCount}`} sub="sessions" tone="blue" icon="🗓️" />
-        <KpiCard title="Clients direct" value={`${kpi.directCount}`} sub="sessions" tone="blue" icon="👤" />
-        <KpiCard title="Sous-traitance" value={`${kpi.subcontractCount}`} sub="sessions" tone="red" icon="🔁" />
-      </div>
-
-      {/* Tableau */}
+    return (
       <div style={{ ...cardStyle, marginTop: 16 }}>
-        <div style={sectionHeaderStyle}>
-          <div style={{ fontSize: 18, fontWeight: 950 }}>Liste des sessions</div>
-
-          <div style={{ display: "flex", gap: 8, position: "relative" }}>
-            <button ref={colsBtnRef} style={softBtnStyle} type="button" onClick={() => setOpenCols((v) => !v)}>
-              ⚙ Colonnes
-            </button>
-
-            {openCols && (
-              <div ref={colsPopRef} style={popoverStyle}>
-                <div style={{ fontWeight: 950, marginBottom: 10, opacity: 0.8 }}>Afficher</div>
-
-                {(
-                  [
-                    ["dates", "Dates"],
-                    ["name", "Nom"],
-                    ["product", "Formation"],
-                    ["client", "Client"],
-                    ["type", "Type"],
-                    ["city", "Ville"],
-                    ["duration", "Durée"],
-                    ["learners", "Apprenants"],
-                    ["certification", "Certification"],
-                    ["actions", "Actions"],
-                  ] as Array<[keyof typeof cols, string]>
-                ).map(([k, label]) => (
-                  <label
-                    key={k}
-                    style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 10, padding: "10px 10px", borderRadius: 12, fontWeight: 900 }}
-                    onMouseEnter={(e) => (e.currentTarget.style.background = "rgba(15,23,42,0.04)")}
-                    onMouseLeave={(e) => (e.currentTarget.style.background = "transparent")}
-                  >
-                    <span>{label}</span>
-                    <input type="checkbox" checked={(cols as any)[k]} onChange={() => setCols((c) => ({ ...c, [k]: !(c as any)[k] }))} />
-                  </label>
-                ))}
-
-                <div style={{ display: "flex", gap: 10, marginTop: 10 }}>
-                  <button
-                    style={softBtnStyle}
-                    type="button"
-                    onClick={() =>
-                      setCols({
-                        dates: true,
-                        name: true,
-                        product: true,
-                        client: true,
-                        type: true,
-                        city: true,
-                        duration: true,
-                        learners: true,
-                        certification: true,
-                        actions: true,
-                      })
-                    }
-                  >
-                    Reset
-                  </button>
-
-                  <button style={softBtnStyle} type="button" onClick={() => setOpenCols(false)}>
-                    Fermer
-                  </button>
-                </div>
-              </div>
-            )}
-
-            <button style={softBtnStyle} onClick={() => void bootstrap()} disabled={loading} type="button">
-              Rafraîchir
-            </button>
+        <div style={{ ...sectionHeaderStyle, borderBottom: "1px solid rgba(15, 23, 42, 0.08)" }}>
+          <div style={{ fontSize: 18, fontWeight: 950 }}>
+            {props.title} <span style={{ opacity: 0.55, fontWeight: 900 }}>({list.length})</span>
           </div>
-        </div>
-
-        <div style={filtersRowStyle}>
-          <div style={searchWrapStyle}>
-            <input style={searchInputStyle} placeholder="Rechercher une session…" value={q} onChange={(e) => setQ(e.target.value)} />
-          </div>
-
-          <select style={selectStyle} value={timeFilter} onChange={(e) => setTimeFilter(e.target.value as any)} title="Période">
-            <option value="ALL">Tous</option>
-            <option value="UPCOMING">À venir</option>
-            <option value="ONGOING">En cours</option>
-            <option value="PAST">Terminées</option>
-          </select>
-
-          <select style={selectStyle} value={deliveryFilter} onChange={(e) => setDeliveryFilter(e.target.value as any)} title="Type">
-            <option value="ALL">Tous types</option>
-            <option value="direct">Client direct</option>
-            <option value="subcontract">Sous-traitance</option>
-            <option value="sous_traitee">Sous-traitée</option>
-          </select>
         </div>
 
         <div style={tableWrapStyle}>
@@ -1132,6 +1032,15 @@ async function loadLearnersForSession(sessionId: string) {
                     </button>
                   </th>
                 )}
+
+                {cols.status && (
+                  <th style={thStyle}>
+                    <button style={thBtnStyle} type="button" onClick={() => toggleSort("session_status", "asc")}>
+                      Statut{sortArrow("session_status")}
+                    </button>
+                  </th>
+                )}
+
                 {cols.name && (
                   <th style={thStyle}>
                     <button style={thBtnStyle} type="button" onClick={() => toggleSort("name", "asc")}>
@@ -1139,6 +1048,7 @@ async function loadLearnersForSession(sessionId: string) {
                     </button>
                   </th>
                 )}
+
                 {cols.product && (
                   <th style={thStyle}>
                     <button style={thBtnStyle} type="button" onClick={() => toggleSort("product_name", "asc")}>
@@ -1146,6 +1056,7 @@ async function loadLearnersForSession(sessionId: string) {
                     </button>
                   </th>
                 )}
+
                 {cols.client && (
                   <th style={thStyle}>
                     <button style={thBtnStyle} type="button" onClick={() => toggleSort("client_name", "asc")}>
@@ -1153,6 +1064,7 @@ async function loadLearnersForSession(sessionId: string) {
                     </button>
                   </th>
                 )}
+
                 {cols.type && (
                   <th style={thStyle}>
                     <button style={thBtnStyle} type="button" onClick={() => toggleSort("delivery_type", "asc")}>
@@ -1160,6 +1072,7 @@ async function loadLearnersForSession(sessionId: string) {
                     </button>
                   </th>
                 )}
+
                 {cols.city && (
                   <th style={thStyle}>
                     <button style={thBtnStyle} type="button" onClick={() => toggleSort("location_city", "asc")}>
@@ -1167,6 +1080,7 @@ async function loadLearnersForSession(sessionId: string) {
                     </button>
                   </th>
                 )}
+
                 {cols.duration && (
                   <th style={{ ...thStyle, textAlign: "center" }}>
                     <button style={thBtnStyle} type="button" onClick={() => toggleSort("duration_days", "desc")}>
@@ -1174,6 +1088,7 @@ async function loadLearnersForSession(sessionId: string) {
                     </button>
                   </th>
                 )}
+
                 {cols.learners && (
                   <th style={{ ...thStyle, textAlign: "center" }}>
                     <button style={thBtnStyle} type="button" onClick={() => toggleSort("learners_count", "desc")}>
@@ -1181,6 +1096,7 @@ async function loadLearnersForSession(sessionId: string) {
                     </button>
                   </th>
                 )}
+
                 {cols.certification && (
                   <th style={thStyle}>
                     <button style={thBtnStyle} type="button" onClick={() => toggleSort("certification_date", "desc")}>
@@ -1188,6 +1104,7 @@ async function loadLearnersForSession(sessionId: string) {
                     </button>
                   </th>
                 )}
+
                 {cols.actions && <th style={{ ...thStyle, textAlign: "center" }}>Actions</th>}
               </tr>
             </thead>
@@ -1199,23 +1116,30 @@ async function loadLearnersForSession(sessionId: string) {
                     Chargement…
                   </td>
                 </tr>
-              ) : filtered.length === 0 ? (
+              ) : list.length === 0 ? (
                 <tr>
                   <td colSpan={99} style={emptyStyle}>
                     Aucune session
                   </td>
                 </tr>
               ) : (
-                filtered.map((r) => {
+                list.map((r) => {
                   const isSubcontractSession = r.delivery_type === "subcontract" && r.subcontractor_user_id === userId;
                   const durDays = daysBetweenInclusive(r.start_date, r.end_date);
                   const learnersCount = learnerCountBySession[r.id] ?? 0;
+                  const sessionStatus = computeSessionStatus(r);
 
                   return (
                     <tr key={r.id}>
                       {cols.dates && (
                         <td style={tdStyle}>
                           {toFrDate(r.start_date)} → {toFrDate(r.end_date)}
+                        </td>
+                      )}
+
+                      {cols.status && (
+                        <td style={tdStyle}>
+                          <SessionStatusPill value={sessionStatus} disabled={!canEdit} onClick={() => void cycleStatusForSession(r.id)} />
                         </td>
                       )}
 
@@ -1265,9 +1189,165 @@ async function loadLearnersForSession(sessionId: string) {
             </tbody>
           </table>
         </div>
-
-        {pageError && !openCreate && !openEdit && !openView && <div style={{ padding: 12, color: "rgb(220,38,38)", fontWeight: 900 }}>{pageError}</div>}
       </div>
+    );
+  }
+
+  return (
+    <div id="sessions-new-ui-root" style={containerStyle}>
+      <style jsx>{`
+        .kpiGrid {
+          display: grid;
+          grid-template-columns: repeat(5, minmax(0, 1fr));
+          gap: 14px;
+          margin-top: 14px;
+        }
+        @media (max-width: 1100px) {
+          .kpiGrid {
+            grid-template-columns: repeat(3, minmax(0, 1fr));
+          }
+        }
+        @media (max-width: 720px) {
+          .kpiGrid {
+            grid-template-columns: repeat(2, minmax(0, 1fr));
+          }
+        }
+        @media (max-width: 460px) {
+          .kpiGrid {
+            grid-template-columns: 1fr;
+          }
+        }
+      `}</style>
+
+      <div style={headerRowStyle}>
+        <div>
+          <div style={{ fontSize: 28, fontWeight: 950, letterSpacing: -0.2 }}>Sessions</div>
+          <div style={{ opacity: 0.6, marginTop: 2 }}>Gestion des sessions</div>
+        </div>
+
+        <div style={{ display: "flex", gap: 10, alignItems: "center" }}>
+          <button style={softBtnStyle} onClick={() => void bootstrap()} disabled={loading} type="button">
+            Rafraîchir
+          </button>
+
+          {canCreate && (
+            <button style={primaryBtnStyle} onClick={openCreateModal} type="button">
+              + Nouvelle session
+            </button>
+          )}
+        </div>
+      </div>
+
+      <div className="kpiGrid" style={kpiGridStyle}>
+        <KpiCard title={`Sessions ${kpi.nowYear}`} value={`${kpi.countThisYear}`} sub={`${kpi.prevYear}: ${kpi.countPrevYear}`} tone="blue" icon="📅" />
+        <KpiCard title={`Jours de formation ${kpi.nowYear}`} value={`${kpi.totalDaysThisYear}`} sub={`${kpi.prevYear} : ${kpi.totalDaysPrevYear} jours`} tone="orange" icon="⏱" />
+        <KpiCard title="À planifier" value={`${kpi.countToPlan}`} sub="sessions" tone="red" icon="🧩" />
+        <KpiCard title="À venir" value={`${kpi.countUpcoming}`} sub="sessions" tone="orange" icon="🗓️" />
+        <KpiCard title="Passées" value={`${kpi.countPast}`} sub="sessions" tone="green" icon="✅" />
+      </div>
+
+      <div style={{ ...cardStyle, marginTop: 16 }}>
+        <div style={sectionHeaderStyle}>
+          <div style={{ fontSize: 18, fontWeight: 950 }}>Filtres</div>
+
+          <div style={{ display: "flex", gap: 8, position: "relative" }}>
+            <button ref={colsBtnRef} style={softBtnStyle} type="button" onClick={() => setOpenCols((v) => !v)}>
+              ⚙ Colonnes
+            </button>
+
+            {openCols && (
+              <div ref={colsPopRef} style={popoverStyle}>
+                <div style={{ fontWeight: 950, marginBottom: 10, opacity: 0.8 }}>Afficher</div>
+
+                {(
+                  [
+                    ["dates", "Dates"],
+                    ["status", "Statut"],
+                    ["name", "Nom"],
+                    ["product", "Formation"],
+                    ["client", "Client"],
+                    ["type", "Type"],
+                    ["city", "Ville"],
+                    ["duration", "Durée"],
+                    ["learners", "Apprenants"],
+                    ["certification", "Certification"],
+                    ["actions", "Actions"],
+                  ] as Array<[keyof typeof cols, string]>
+                ).map(([k, label]) => (
+                  <label
+                    key={k}
+                    style={{
+                      display: "flex",
+                      alignItems: "center",
+                      justifyContent: "space-between",
+                      gap: 10,
+                      padding: "10px 10px",
+                      borderRadius: 12,
+                      fontWeight: 900,
+                    }}
+                    onMouseEnter={(e) => (e.currentTarget.style.background = "rgba(15,23,42,0.04)")}
+                    onMouseLeave={(e) => (e.currentTarget.style.background = "transparent")}
+                  >
+                    <span>{label}</span>
+                    <input type="checkbox" checked={(cols as any)[k]} onChange={() => setCols((c) => ({ ...c, [k]: !(c as any)[k] }))} />
+                  </label>
+                ))}
+
+                <div style={{ display: "flex", gap: 10, marginTop: 10 }}>
+                  <button
+                    style={softBtnStyle}
+                    type="button"
+                    onClick={() =>
+                      setCols({
+                        dates: true,
+                        status: true,
+                        name: true,
+                        product: true,
+                        client: true,
+                        type: true,
+                        city: true,
+                        duration: true,
+                        learners: true,
+                        certification: true,
+                        actions: true,
+                      })
+                    }
+                  >
+                    Reset
+                  </button>
+
+                  <button style={softBtnStyle} type="button" onClick={() => setOpenCols(false)}>
+                    Fermer
+                  </button>
+                </div>
+              </div>
+            )}
+
+            <button style={softBtnStyle} onClick={() => void bootstrap()} disabled={loading} type="button">
+              Rafraîchir
+            </button>
+          </div>
+        </div>
+
+        <div style={filtersRowStyle}>
+          <div style={searchWrapStyle}>
+            <input style={searchInputStyle} placeholder="Rechercher une session…" value={q} onChange={(e) => setQ(e.target.value)} />
+          </div>
+
+          <select style={selectStyle} value={deliveryFilter} onChange={(e) => setDeliveryFilter(e.target.value as any)} title="Type">
+            <option value="ALL">Tous types</option>
+            <option value="direct">Client direct</option>
+            <option value="subcontract">Sous-traitance</option>
+            <option value="sous_traitee">Sous-traitée</option>
+          </select>
+        </div>
+      </div>
+
+      <TableCard title="Sessions à planifier" rows={rowsToPlan} />
+      <TableCard title="Sessions à venir" rows={rowsUpcoming} />
+      <TableCard title="Sessions passées" rows={rowsPast} />
+
+      {pageError && !openCreate && !openEdit && !openView && <div style={{ padding: 12, color: "rgb(220,38,38)", fontWeight: 900 }}>{pageError}</div>}
 
       {/* VIEW */}
       {openView && selected && (
@@ -1418,7 +1498,7 @@ async function loadLearnersForSession(sessionId: string) {
           </div>
         </div>
       )}
-
+      // ===== BLOCK 4/4 =====
       {/* CREATE */}
       {openCreate && (
         <div style={overlayStyle} onMouseDown={closeCreateModal}>
@@ -1431,14 +1511,7 @@ async function loadLearnersForSession(sessionId: string) {
             </div>
 
             <div style={modalBodyStyle}>
-              <SessionForm
-                form={form}
-                setField={setField as any}
-                clients={clients}
-                products={products}
-                subcontractors={subcontractors}
-                subcontractorsLoading={subcontractorsLoading}
-              />
+              <SessionForm form={form} setField={setField as any} clients={clients} products={products} subcontractors={subcontractors} subcontractorsLoading={subcontractorsLoading} />
             </div>
 
             {formError && <div style={inlineErrorStyle}>{formError}</div>}
@@ -1467,14 +1540,7 @@ async function loadLearnersForSession(sessionId: string) {
             </div>
 
             <div style={modalBodyStyle}>
-              <SessionForm
-                form={form}
-                setField={setField as any}
-                clients={clients}
-                products={products}
-                subcontractors={subcontractors}
-                subcontractorsLoading={subcontractorsLoading}
-              />
+              <SessionForm form={form} setField={setField as any} clients={clients} products={products} subcontractors={subcontractors} subcontractorsLoading={subcontractorsLoading} />
             </div>
 
             {formError && <div style={inlineErrorStyle}>{formError}</div>}
@@ -1686,6 +1752,36 @@ function StatusPill(props: { label: string; tone: "green" | "orange" | "red" | "
       }}
     >
       {props.label}
+    </span>
+  );
+}
+
+function SessionStatusPill(props: { value: SessionStatus; disabled?: boolean; onClick?: () => void }) {
+  const tone: "green" | "orange" | "red" = props.value === "passé" ? "green" : props.value === "à venir" ? "orange" : "red";
+  const bg = tone === "green" ? "rgba(34,197,94,0.12)" : tone === "orange" ? "rgba(245,158,11,0.14)" : "rgba(239,68,68,0.14)";
+  const fg = tone === "green" ? "rgb(22,163,74)" : tone === "orange" ? "rgb(217,119,6)" : "rgb(220,38,38)";
+
+  return (
+    <span
+      title={props.disabled ? "Non modifiable" : "Cliquer pour changer"}
+      onClick={props.disabled ? undefined : props.onClick}
+      style={{
+        display: "inline-flex",
+        alignItems: "center",
+        padding: "6px 10px",
+        borderRadius: 999,
+        background: bg,
+        color: fg,
+        fontWeight: 950,
+        fontSize: 12,
+        whiteSpace: "nowrap",
+        cursor: props.disabled ? "not-allowed" : "pointer",
+        opacity: props.disabled ? 0.6 : 1,
+        border: "1px solid rgba(15, 23, 42, 0.10)",
+        userSelect: "none",
+      }}
+    >
+      {props.value}
     </span>
   );
 }

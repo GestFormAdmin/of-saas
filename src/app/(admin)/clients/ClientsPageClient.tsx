@@ -1,15 +1,13 @@
 "use client";
-export const dynamic = "force-dynamic";
-export const revalidate = 0;
 
 import React, { useEffect, useMemo, useState } from "react";
 import { supabase } from "@/lib/supabaseClient";
 import ClientRowActions from "./ClientRowActions";
-
 import { PageHeader } from "@/components/ui/PageHeader";
 import { Button } from "@/components/ui/Button";
 import { Card, CardBody } from "@/components/ui/Card";
 import { EmptyState } from "@/components/ui/EmptyState";
+import RequirePageAccessClient from "@/features/auth/RequirePageAccessClient";
 
 /* ================== STYLES (table) ================== */
 const tableStyle: React.CSSProperties = {
@@ -99,6 +97,7 @@ type ClientKpis = {
   cash_collected: number;
   cash_pending: number;
   quotes_lost: number;
+    cash_total_all_time: number;
 };
 
 /* ================== HELPERS ================== */
@@ -259,6 +258,7 @@ export default function ClientsPageClient() {
     | "city"
     | "learners_current_year"
     | "learners_total"
+    | "cash_total"
     | "cash_collected"
     | "cash_pending"
     | "quotes_lost";
@@ -275,6 +275,7 @@ export default function ClientsPageClient() {
     | "city"
     | "learners_current_year"
     | "learners_total"
+    | "cash_total"
     | "cash_collected"
     | "cash_pending"
     | "quotes_lost"
@@ -287,6 +288,7 @@ export default function ClientsPageClient() {
     city: true,
     learners_current_year: true,
     learners_total: true,
+    cash_total: true,
     cash_collected: true,
     cash_pending: true,
     quotes_lost: true,
@@ -300,9 +302,7 @@ export default function ClientsPageClient() {
       const raw = localStorage.getItem(COLS_STORAGE_KEY);
       if (!raw) return;
       const parsed = JSON.parse(raw);
-      if (parsed && typeof parsed === "object") {
-        setVisibleCols((prev) => ({ ...prev, ...parsed }));
-      }
+      if (parsed && typeof parsed === "object") setVisibleCols((prev) => ({ ...prev, ...parsed }));
     } catch {}
   }, []);
 
@@ -314,7 +314,6 @@ export default function ClientsPageClient() {
 
   async function loadOrgId() {
     const { data, error } = await supabase.rpc("current_org_id");
-    console.log("[DEBUG] current_org_id =", data);
     if (error) throw error;
 
     const oid = (data as string) ?? null;
@@ -331,7 +330,8 @@ export default function ClientsPageClient() {
         cash_collected: 0,
         cash_pending: 0,
         quotes_lost: 0,
-      }
+                      cash_total_all_time: 0,
+}
     );
   }
 
@@ -370,12 +370,12 @@ export default function ClientsPageClient() {
         .order("created_at", { ascending: false });
 
       if (error) throw error;
-      setClients(((data ?? []) as any) as Client[]);
+      setClients(((data as unknown) as Client[]) ?? []);
 
       try {
         const [{ data: kpiData, error: kpiErr }, { data: kpiPrevData, error: kpiPrevErr }] = await Promise.all([
-          supabase.rpc("clients_kpis", { p_year: currentYear }),
-          supabase.rpc("clients_kpis", { p_year: currentYear - 1 }),
+          supabase.rpc("clients_kpis_v2", { p_year: currentYear }),
+          supabase.rpc("clients_kpis_v2", { p_year: currentYear - 1 }),
         ]);
 
         if (!kpiErr && Array.isArray(kpiData)) {
@@ -389,7 +389,8 @@ export default function ClientsPageClient() {
               cash_collected: Number(row.cash_collected ?? 0),
               cash_pending: Number(row.cash_pending ?? 0),
               quotes_lost: Number(row.quotes_lost ?? 0),
-            };
+                                        cash_total_all_time: Number(row.cash_total_all_time ?? 0),
+};
           });
           setKpisByClientId(map);
         } else {
@@ -401,13 +402,14 @@ export default function ClientsPageClient() {
           (kpiPrevData as any[]).forEach((row) => {
             if (!row?.client_id) return;
             mapPrev[row.client_id] = {
-              client_id: row.client_id,
-              learners_current_year: Number(row.learners_current_year ?? 0),
-              learners_total: Number(row.learners_total ?? 0),
-              cash_collected: Number(row.cash_collected ?? 0),
-              cash_pending: Number(row.cash_pending ?? 0),
-              quotes_lost: Number(row.quotes_lost ?? 0),
-            };
+  client_id: row.client_id,
+  learners_current_year: Number(row.learners_current_year ?? 0),
+  learners_total: Number(row.learners_total ?? 0),
+  cash_collected: Number(row.cash_collected ?? 0),
+  cash_pending: Number(row.cash_pending ?? 0),
+  quotes_lost: Number(row.quotes_lost ?? 0),
+  cash_total_all_time: Number(row.cash_total_all_time ?? 0), // ✅ AJOUTE ÇA
+};
           });
           setKpisPrevByClientId(mapPrev);
         } else {
@@ -426,7 +428,7 @@ export default function ClientsPageClient() {
   }
 
   useEffect(() => {
-    fetchClients();
+    void fetchClients();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
@@ -594,6 +596,7 @@ export default function ClientsPageClient() {
       { key: "city" as const, label: "Ville", align: "left" as const, sortable: true },
       { key: "learners_current_year" as const, label: `Appr. ${currentYear}`, align: "right" as const, sortable: true },
       { key: "learners_total" as const, label: "Appr. total", align: "right" as const, sortable: true },
+      { key: "cash_total" as const, label: "CA total", align: "right" as const, sortable: true },
       { key: "cash_collected" as const, label: "CA encaissé", align: "right" as const, sortable: true },
       { key: "cash_pending" as const, label: "CA attente", align: "right" as const, sortable: true },
       { key: "quotes_lost" as const, label: "Devis sans suite", align: "right" as const, sortable: true },
@@ -629,6 +632,8 @@ export default function ClientsPageClient() {
         return kpi.learners_current_year;
       case "learners_total":
         return kpi.learners_total;
+      case "cash_total":
+        return kpi.cash_total_all_time;
       case "cash_collected":
         return kpi.cash_collected;
       case "cash_pending":
@@ -664,496 +669,505 @@ export default function ClientsPageClient() {
   const showEmpty = !loading && clientsSorted.length === 0 && !error;
 
   return (
-    <div className="space-y-6">
-      <PageHeader title="Clients" description="Gestion des clients" />
+    <RequirePageAccessClient pageKey="clients" fallback={null}>
+      <div className="space-y-6">
+        <PageHeader title="Clients" description="Gestion des clients" />
 
-      {error ? (
-        <div className="rounded-2xl border border-red-200 bg-red-50 p-4 text-sm">
-          <div className="font-semibold">Erreur</div>
-          <div className="text-muted-foreground">{error}</div>
+        {error ? (
+          <div className="rounded-2xl border border-red-200 bg-red-50 p-4 text-sm">
+            <div className="font-semibold">Erreur</div>
+            <div className="text-muted-foreground">{error}</div>
+          </div>
+        ) : null}
+
+        {/* KPI */}
+        <div className="grid grid-cols-1 gap-4 md:grid-cols-6">
+          <KpiCard title="Clients" value={`${clients.length}`} sub="Total clients" tone="gray" icon="👥" />
+
+          <KpiCard
+            title={`Apprenants ${currentYear}`}
+            value={`${totals.learners_current_year}`}
+            sub={`${currentYear - 1}: ${totalsPrev.learners_current_year}`}
+            tone="blue"
+            icon="🎓"
+          />
+
+          <KpiCard
+            title="CA total"
+            value={formatMoneyEUR(totals.cash_collected + totals.cash_pending)}
+            sub={`${currentYear - 1}: ${formatMoneyEUR(totalsPrev.cash_collected + totalsPrev.cash_pending)}`}
+            tone="gray"
+            icon="💰"
+          />
+
+          <KpiCard
+            title="CA encaissé"
+            value={formatMoneyEUR(totals.cash_collected)}
+            sub={`${currentYear - 1}: ${formatMoneyEUR(totalsPrev.cash_collected)}`}
+            tone="green"
+            icon="€"
+          />
+
+          <KpiCard
+            title="CA en attente"
+            value={formatMoneyEUR(totals.cash_pending)}
+            sub={`${currentYear - 1}: ${formatMoneyEUR(totalsPrev.cash_pending)}`}
+            tone="orange"
+            icon="⏱"
+          />
+
+          <KpiCard
+            title="Devis sans suite"
+            value={`${totals.quotes_lost}`}
+            sub={`${currentYear - 1}: ${totalsPrev.quotes_lost}`}
+            tone="red"
+            icon="⛔"
+          />
         </div>
-      ) : null}
 
-      {/* KPI */}
-      <div className="grid grid-cols-5 gap-4">
-        <KpiCard title="Clients" value={`${clients.length}`} sub="Total clients" tone="gray" icon="👥" />
-        <KpiCard
-          title={`Apprenants ${currentYear}`}
-          value={`${totals.learners_current_year}`}
-          sub={`${currentYear - 1}: ${totalsPrev.learners_current_year}`}
-          tone="blue"
-          icon="🎓"
-        />
-        <KpiCard
-          title="CA encaissé"
-          value={formatMoneyEUR(totals.cash_collected)}
-          sub={`${currentYear - 1}: ${formatMoneyEUR(totalsPrev.cash_collected)}`}
-          tone="green"
-          icon="€"
-        />
-        <KpiCard
-          title="CA en attente"
-          value={formatMoneyEUR(totals.cash_pending)}
-          sub={`${currentYear - 1}: ${formatMoneyEUR(totalsPrev.cash_pending)}`}
-          tone="orange"
-          icon="⏱"
-        />
-        <KpiCard
-          title="Devis sans suite"
-          value={`${totals.quotes_lost}`}
-          sub={`${currentYear - 1}: ${totalsPrev.quotes_lost}`}
-          tone="red"
-          icon="⛔"
-        />
-      </div>
+        {/* LIST */}
+        <Card>
+          <CardBody>
+            <div className="flex flex-wrap items-center justify-between gap-3">
+              <div className="text-lg font-semibold">Liste des clients</div>
 
-      {/* LIST */}
-      <Card>
-        <CardBody>
-          <div className="flex flex-wrap items-center justify-between gap-3">
-            <div className="text-lg font-semibold">Liste des clients</div>
+              <div className="relative flex items-center gap-2">
+                <Button variant="default" onClick={openCreate} disabled={loading}>
+                  + Ajouter un client
+                </Button>
 
-            <div className="relative flex items-center gap-2">
-              {/* ✅ Bouton style “+ Nouvelle session” */}
-              <Button
-                onClick={openCreate}
-                disabled={loading}
-                className="h-12 rounded-full px-6 text-base font-extrabold text-white shadow-sm disabled:opacity-60"
-                style={{ background: "rgb(239, 68, 68)" }}
-              >
-                + Nouveau client
-              </Button>
+                <Button variant="secondary" onClick={() => void fetchClients()} disabled={loading}>
+                  Rafraîchir
+                </Button>
 
-              <Button variant="secondary" onClick={() => void fetchClients()} disabled={loading}>
-                Rafraîchir
-              </Button>
+                <Button variant="secondary" onClick={() => setColsOpen((v) => !v)}>
+                  Colonnes
+                </Button>
 
-              <Button variant="secondary" onClick={() => setColsOpen((v) => !v)}>
-                Colonnes
-              </Button>
+                {colsOpen && (
+                  <div style={popoverStyle}>
+                    <div style={{ fontWeight: 950, padding: "6px 8px 8px 8px", opacity: 0.8 }}>Afficher</div>
 
-              {colsOpen ? (
-                <div style={popoverStyle}>
-                  <div style={{ fontWeight: 950, padding: "6px 8px 8px 8px", opacity: 0.8 }}>Afficher</div>
+                    {(
+                      [
+                        ["name", "Nom"],
+                        ["city", "Ville"],
+                        ["learners_current_year", `Appr. ${currentYear}`],
+                        ["learners_total", "Appr. total"],
+                        ["cash_total", "CA total"],
+                        ["cash_collected", "CA encaissé"],
+                        ["cash_pending", "CA attente"],
+                        ["quotes_lost", "Devis sans suite"],
+                        ["actions", "Actions"],
+                      ] as Array<[ColKey, string]>
+                    ).map(([k, label]) => (
+                      <label
+                        key={k}
+                        style={{
+                          ...checkboxRowStyle,
+                          background: "rgba(15,23,42,0.02)",
+                          cursor: "pointer",
+                        }}
+                      >
+                        <span style={{ fontWeight: 900 }}>{label}</span>
+                        <input
+                          type="checkbox"
+                          checked={!!visibleCols[k]}
+                          onChange={(e) => setVisibleCols((p) => ({ ...p, [k]: e.target.checked }))}
+                        />
+                      </label>
+                    ))}
 
-                  {(
-                    [
-                      ["name", "Nom"],
-                      ["city", "Ville"],
-                      ["learners_current_year", `Appr. ${currentYear}`],
-                      ["learners_total", "Appr. total"],
-                      ["cash_collected", "CA encaissé"],
-                      ["cash_pending", "CA attente"],
-                      ["quotes_lost", "Devis sans suite"],
-                      ["actions", "Actions"],
-                    ] as Array<[ColKey, string]>
-                  ).map(([k, label]) => (
-                    <label
-                      key={k}
-                      style={{
-                        ...checkboxRowStyle,
-                        background: "rgba(15,23,42,0.02)",
-                        cursor: "pointer",
-                      }}
-                    >
-                      <span style={{ fontWeight: 900 }}>{label}</span>
-                      <input
-                        type="checkbox"
-                        checked={!!visibleCols[k]}
-                        onChange={(e) => setVisibleCols((p) => ({ ...p, [k]: e.target.checked }))}
-                      />
-                    </label>
-                  ))}
-
-                  <div style={{ display: "flex", gap: 8, paddingTop: 10 }}>
-                    <button
-                      className="h-10 rounded-xl border px-3 font-semibold hover:bg-gray-50"
-                      type="button"
-                      onClick={() => setVisibleCols(defaultVisibleCols)}
-                    >
-                      Reset
-                    </button>
-                    <button
-                      className="h-10 rounded-xl border px-3 font-semibold hover:bg-gray-50"
-                      type="button"
-                      onClick={() => setColsOpen(false)}
-                    >
-                      Fermer
-                    </button>
+                    <div style={{ display: "flex", gap: 8, paddingTop: 10 }}>
+                      <button
+                        className="h-10 rounded-xl border px-3 font-semibold hover:bg-gray-50"
+                        type="button"
+                        onClick={() => setVisibleCols(defaultVisibleCols)}
+                      >
+                        Reset
+                      </button>
+                      <button
+                        className="h-10 rounded-xl border px-3 font-semibold hover:bg-gray-50"
+                        type="button"
+                        onClick={() => setColsOpen(false)}
+                      >
+                        Fermer
+                      </button>
+                    </div>
                   </div>
-                </div>
-              ) : null}
+                )}
+              </div>
             </div>
-          </div>
 
-          <div className="mt-4">
-            <input
-              className="h-10 w-full rounded-xl border px-3 text-sm font-semibold outline-none"
-              placeholder="Rechercher un client… (nom, ville, email)"
-              value={q}
-              onChange={(e) => setQ(e.target.value)}
-            />
-          </div>
-
-          {showEmpty ? (
-            <div className="mt-6 space-y-3">
-              <EmptyState title="Aucun client" description="Crée ton premier client pour commencer." />
-              <Button
-                onClick={openCreate}
-                className="h-12 rounded-full px-6 text-base font-extrabold text-white shadow-sm"
-                style={{ background: "rgb(239, 68, 68)" }}
-              >
-                + Nouveau client
-              </Button>
+            <div className="mt-4">
+              <input
+                className="h-10 w-full rounded-xl border px-3 text-sm font-semibold outline-none"
+                placeholder="Rechercher un client… (nom, ville, email)"
+                value={q}
+                onChange={(e) => setQ(e.target.value)}
+              />
             </div>
-          ) : (
-            <div className="mt-4 overflow-hidden rounded-2xl border">
-              <div className="overflow-x-auto">
-                <table style={tableStyle}>
-                  <thead>
-                    <tr>
-                      {columns.map((col) => {
-                        const isRight = col.align === "right";
-                        const isCenter = col.align === "center";
 
-                        const baseTh: React.CSSProperties = {
-                          ...thStyle,
-                          textAlign: isRight ? "right" : isCenter ? "center" : "left",
-                          cursor: col.sortable && col.key !== "actions" ? "pointer" : "default",
-                          userSelect: "none",
-                        };
+            {showEmpty ? (
+              <div className="mt-6">
+                <EmptyState title="Aucun client" description="Crée ton premier client pour commencer." />
+              </div>
+            ) : (
+              <div className="mt-4 overflow-hidden rounded-2xl border">
+                <div className="overflow-x-auto">
+                  <table style={tableStyle}>
+                    <thead>
+                      <tr>
+                        {columns.map((col) => {
+                          const isRight = col.align === "right";
+                          const isCenter = col.align === "center";
 
-                        if (col.sortable && col.key !== "actions") {
+                          const baseTh: React.CSSProperties = {
+                            ...thStyle,
+                            textAlign: isRight ? "right" : isCenter ? "center" : "left",
+                            cursor: col.sortable && col.key !== "actions" ? "pointer" : "default",
+                            userSelect: "none",
+                          };
+
+                          if (col.sortable && col.key !== "actions") {
+                            return (
+                              <th
+                                key={col.key}
+                                style={baseTh}
+                                onClick={() => toggleSort(col.key as SortKey)}
+                                title="Trier"
+                              >
+                                {col.label}
+                                {sortBadge(col.key as SortKey)}
+                              </th>
+                            );
+                          }
+
                           return (
-                            <th
-                              key={col.key}
-                              style={baseTh}
-                              onClick={() => toggleSort(col.key as SortKey)}
-                              title="Trier"
-                            >
+                            <th key={col.key} style={baseTh}>
                               {col.label}
-                              {sortBadge(col.key as SortKey)}
                             </th>
                           );
-                        }
-
-                        return (
-                          <th key={col.key} style={baseTh}>
-                            {col.label}
-                          </th>
-                        );
-                      })}
-                    </tr>
-                  </thead>
-
-                  <tbody>
-                    {loading ? (
-                      <tr>
-                        <td colSpan={99} style={{ padding: 16, textAlign: "center", opacity: 0.65, fontWeight: 800 }}>
-                          Chargement…
-                        </td>
+                        })}
                       </tr>
-                    ) : clientsSorted.length === 0 ? (
-                      <tr>
-                        <td colSpan={99} style={{ padding: 16, textAlign: "center", opacity: 0.65, fontWeight: 800 }}>
-                          Aucun client
-                        </td>
-                      </tr>
-                    ) : (
-                      clientsSorted.map((c) => {
-                        const k = kpisForYear(kpisByClientId, c.id);
+                    </thead>
 
-                        return (
-                          <tr key={c.id}>
-                            {columns.map((col) => {
-                              if (col.key === "name")
+                    <tbody>
+                      {loading ? (
+                        <tr>
+                          <td colSpan={99} style={{ padding: 16, textAlign: "center", opacity: 0.65, fontWeight: 800 }}>
+                            Chargement…
+                          </td>
+                        </tr>
+                      ) : clientsSorted.length === 0 ? (
+                        <tr>
+                          <td colSpan={99} style={{ padding: 16, textAlign: "center", opacity: 0.65, fontWeight: 800 }}>
+                            Aucun client
+                          </td>
+                        </tr>
+                      ) : (
+                        clientsSorted.map((c) => {
+                          const k = kpisForYear(kpisByClientId, c.id);
+                          return (
+                            <tr key={c.id}>
+                              {columns.map((col) => {
+                                if (col.key === "name")
+                                  return (
+                                    <td key={col.key} style={tdStyleStrong}>
+                                      {c.name ?? "—"}
+                                    </td>
+                                  );
+
+                                if (col.key === "city")
+                                  return (
+                                    <td key={col.key} style={tdStyle}>
+                                      {c.address_city ?? "—"}
+                                    </td>
+                                  );
+
+                                if (col.key === "learners_current_year")
+                                  return (
+                                    <td key={col.key} style={tdStyleRight}>
+                                      {k.learners_current_year}
+                                    </td>
+                                  );
+
+                                if (col.key === "learners_total")
+                                  return (
+                                    <td key={col.key} style={tdStyleRight}>
+                                      {k.learners_total}
+                                    </td>
+                                  );
+
+                                if (col.key === "cash_total")
+                                  return (
+                                    <td key={col.key} style={tdStyleRight}>
+                                      {formatMoneyEUR(k.cash_total_all_time)}
+                                    </td>
+                                  );
+
+                                if (col.key === "cash_collected")
+                                  return (
+                                    <td key={col.key} style={tdStyleRight}>
+                                      {formatMoneyEUR(k.cash_collected)}
+                                    </td>
+                                  );
+
+                                if (col.key === "cash_pending")
+                                  return (
+                                    <td key={col.key} style={tdStyleRight}>
+                                      {formatMoneyEUR(k.cash_pending)}
+                                    </td>
+                                  );
+
+                                if (col.key === "quotes_lost")
+                                  return (
+                                    <td key={col.key} style={tdStyleRight}>
+                                      {k.quotes_lost}
+                                    </td>
+                                  );
+
                                 return (
-                                  <td key={col.key} style={tdStyleStrong}>
-                                    {c.name ?? "—"}
+                                  <td key={col.key} style={tdStyleCenter}>
+                                    <div style={{ display: "inline-flex", justifyContent: "center" }}>
+                                      <ClientRowActions
+                                        onView={() => openView(c)}
+                                        onEdit={() => openEdit(c)}
+                                        onDelete={() => void deleteClient(c)}
+                                      />
+                                    </div>
                                   </td>
                                 );
-                              if (col.key === "city")
-                                return (
-                                  <td key={col.key} style={tdStyle}>
-                                    {c.address_city ?? "—"}
-                                  </td>
-                                );
+                              })}
+                            </tr>
+                          );
+                        })
+                      )}
+                    </tbody>
+                  </table>
+                </div>
+              </div>
+            )}
+          </CardBody>
+        </Card>
 
-                              if (col.key === "learners_current_year")
-                                return (
-                                  <td key={col.key} style={tdStyleRight}>
-                                    {k.learners_current_year}
-                                  </td>
-                                );
+        {/* CREATE */}
+        <ModalShell title="Créer un client" open={createOpen} onClose={() => setCreateOpen(false)}>
+          <div className="space-y-4">
+            <div className="grid grid-cols-2 gap-4">
+              <div className="col-span-2">
+                <div className="mb-1 text-sm text-gray-600">Nom</div>
+                <input
+                  value={formName}
+                  onChange={(e) => setFormName(e.target.value)}
+                  className="h-11 w-full rounded-xl border px-3"
+                  placeholder="Nom du client"
+                />
+              </div>
 
-                              if (col.key === "learners_total")
-                                return (
-                                  <td key={col.key} style={tdStyleRight}>
-                                    {k.learners_total}
-                                  </td>
-                                );
+              <div className="col-span-2">
+                <div className="mb-1 text-sm text-gray-600">Rue</div>
+                <input
+                  value={formStreet}
+                  onChange={(e) => setFormStreet(e.target.value)}
+                  className="h-11 w-full rounded-xl border px-3"
+                  placeholder="Adresse"
+                />
+              </div>
 
-                              if (col.key === "cash_collected")
-                                return (
-                                  <td key={col.key} style={tdStyleRight}>
-                                    {formatMoneyEUR(k.cash_collected)}
-                                  </td>
-                                );
+              <div>
+                <div className="mb-1 text-sm text-gray-600">Code postal</div>
+                <input
+                  value={formPostal}
+                  onChange={(e) => setFormPostal(e.target.value)}
+                  className="h-11 w-full rounded-xl border px-3"
+                  placeholder="75000"
+                />
+              </div>
 
-                              if (col.key === "cash_pending")
-                                return (
-                                  <td key={col.key} style={tdStyleRight}>
-                                    {formatMoneyEUR(k.cash_pending)}
-                                  </td>
-                                );
+              <div>
+                <div className="mb-1 text-sm text-gray-600">Ville</div>
+                <input
+                  value={formCity}
+                  onChange={(e) => setFormCity(e.target.value)}
+                  className="h-11 w-full rounded-xl border px-3"
+                  placeholder="Paris"
+                />
+              </div>
 
-                              if (col.key === "quotes_lost")
-                                return (
-                                  <td key={col.key} style={tdStyleRight}>
-                                    {k.quotes_lost}
-                                  </td>
-                                );
+              <div>
+                <div className="mb-1 text-sm text-gray-600">Email</div>
+                <input
+                  value={formEmail}
+                  onChange={(e) => setFormEmail(e.target.value)}
+                  className="h-11 w-full rounded-xl border px-3"
+                  placeholder="email@domaine.com"
+                />
+              </div>
 
-                              return (
-                                <td key={col.key} style={tdStyleCenter}>
-                                  <div style={{ display: "inline-flex", justifyContent: "center" }}>
-                                    <ClientRowActions
-                                      onView={() => openView(c)}
-                                      onEdit={() => openEdit(c)}
-                                      onDelete={() => void deleteClient(c)}
-                                    />
-                                  </div>
-                                </td>
-                              );
-                            })}
-                          </tr>
-                        );
-                      })
-                    )}
-                  </tbody>
-                </table>
+              <div>
+                <div className="mb-1 text-sm text-gray-600">Téléphone</div>
+                <input
+                  value={formPhone}
+                  onChange={(e) => setFormPhone(e.target.value)}
+                  className="h-11 w-full rounded-xl border px-3"
+                  placeholder="06..."
+                />
+              </div>
+
+              <div className="col-span-2">
+                <div className="mb-1 text-sm text-gray-600">Notes</div>
+                <textarea
+                  value={formNotes}
+                  onChange={(e) => setFormNotes(e.target.value)}
+                  className="min-h-[140px] w-full rounded-xl border px-3 py-2"
+                  placeholder="Notes internes…"
+                />
+              </div>
+            </div>
+
+            <div className="flex justify-end gap-2 pt-2">
+              <Button variant="secondary" onClick={() => setCreateOpen(false)} disabled={creating}>
+                Annuler
+              </Button>
+              <Button variant="default" onClick={() => void createClient()} disabled={creating}>
+                {creating ? "Création..." : "Créer"}
+              </Button>
+            </div>
+          </div>
+        </ModalShell>
+
+        {/* VIEW */}
+        <ModalShell
+          title="Voir le client"
+          open={viewOpen && !!selected}
+          onClose={() => {
+            setViewOpen(false);
+            setSelected(null);
+          }}
+        >
+          {selected && (
+            <div className="space-y-6">
+              <div className="grid grid-cols-2 gap-4">
+                <Field label="Nom" value={selected.name ?? "-"} />
+                <Field label="Email" value={selected.email ?? "-"} />
+                <Field label="Téléphone" value={selected.phone ?? "-"} />
+                <Field
+                  label="Adresse"
+                  value={
+                    [selected.address_street, selected.address_postal_code, selected.address_city]
+                      .filter(Boolean)
+                      .join(", ") || "-"
+                  }
+                />
+                <div className="col-span-2">
+                  <Field label="Notes" value={selected.notes ?? "-"} />
+                </div>
               </div>
             </div>
           )}
-        </CardBody>
-      </Card>
+        </ModalShell>
 
-      {/* CREATE */}
-      <ModalShell title="Créer un client" open={createOpen} onClose={() => setCreateOpen(false)}>
-        <div className="space-y-4">
-          <div className="grid grid-cols-2 gap-4">
-            <div className="col-span-2">
-              <div className="mb-1 text-sm text-gray-600">Nom</div>
-              <input
-                value={formName}
-                onChange={(e) => setFormName(e.target.value)}
-                className="h-11 w-full rounded-xl border px-3"
-                placeholder="Nom du client"
-              />
-            </div>
-
-            <div className="col-span-2">
-              <div className="mb-1 text-sm text-gray-600">Rue</div>
-              <input
-                value={formStreet}
-                onChange={(e) => setFormStreet(e.target.value)}
-                className="h-11 w-full rounded-xl border px-3"
-                placeholder="Adresse"
-              />
-            </div>
-
-            <div>
-              <div className="mb-1 text-sm text-gray-600">Code postal</div>
-              <input
-                value={formPostal}
-                onChange={(e) => setFormPostal(e.target.value)}
-                className="h-11 w-full rounded-xl border px-3"
-                placeholder="75000"
-              />
-            </div>
-
-            <div>
-              <div className="mb-1 text-sm text-gray-600">Ville</div>
-              <input
-                value={formCity}
-                onChange={(e) => setFormCity(e.target.value)}
-                className="h-11 w-full rounded-xl border px-3"
-                placeholder="Paris"
-              />
-            </div>
-
-            <div>
-              <div className="mb-1 text-sm text-gray-600">Email</div>
-              <input
-                value={formEmail}
-                onChange={(e) => setFormEmail(e.target.value)}
-                className="h-11 w-full rounded-xl border px-3"
-                placeholder="email@domaine.com"
-              />
-            </div>
-
-            <div>
-              <div className="mb-1 text-sm text-gray-600">Téléphone</div>
-              <input
-                value={formPhone}
-                onChange={(e) => setFormPhone(e.target.value)}
-                className="h-11 w-full rounded-xl border px-3"
-                placeholder="06..."
-              />
-            </div>
-
-            <div className="col-span-2">
-              <div className="mb-1 text-sm text-gray-600">Notes</div>
-              <textarea
-                value={formNotes}
-                onChange={(e) => setFormNotes(e.target.value)}
-                className="min-h-[140px] w-full rounded-xl border px-3 py-2"
-                placeholder="Notes internes…"
-              />
-            </div>
-          </div>
-
-          <div className="flex justify-end gap-2 pt-2">
-            <Button variant="secondary" onClick={() => setCreateOpen(false)} disabled={creating}>
-              Annuler
-            </Button>
-            <Button variant="default" onClick={() => void createClient()} disabled={creating}>
-              {creating ? "Création..." : "Créer"}
-            </Button>
-          </div>
-        </div>
-      </ModalShell>
-
-      {/* VIEW */}
-      <ModalShell
-        title="Voir le client"
-        open={viewOpen && !!selected}
-        onClose={() => {
-          setViewOpen(false);
-          setSelected(null);
-        }}
-      >
-        {selected && (
-          <div className="space-y-6">
+        {/* EDIT */}
+        <ModalShell
+          title="Modifier le client"
+          open={editOpen && !!selected}
+          onClose={() => {
+            setEditOpen(false);
+            setSelected(null);
+          }}
+        >
+          <div className="space-y-4">
             <div className="grid grid-cols-2 gap-4">
-              <Field label="Nom" value={selected.name ?? "-"} />
-              <Field label="Email" value={selected.email ?? "-"} />
-              <Field label="Téléphone" value={selected.phone ?? "-"} />
-              <Field
-                label="Adresse"
-                value={
-                  [selected.address_street, selected.address_postal_code, selected.address_city]
-                    .filter(Boolean)
-                    .join(", ") || "-"
-                }
-              />
               <div className="col-span-2">
-                <Field label="Notes" value={selected.notes ?? "-"} />
+                <div className="mb-1 text-sm text-gray-600">Nom</div>
+                <input
+                  value={formName}
+                  onChange={(e) => setFormName(e.target.value)}
+                  className="h-11 w-full rounded-xl border px-3"
+                  placeholder="Nom du client"
+                />
+              </div>
+
+              <div className="col-span-2">
+                <div className="mb-1 text-sm text-gray-600">Rue</div>
+                <input
+                  value={formStreet}
+                  onChange={(e) => setFormStreet(e.target.value)}
+                  className="h-11 w-full rounded-xl border px-3"
+                  placeholder="Adresse"
+                />
+              </div>
+
+              <div>
+                <div className="mb-1 text-sm text-gray-600">Code postal</div>
+                <input
+                  value={formPostal}
+                  onChange={(e) => setFormPostal(e.target.value)}
+                  className="h-11 w-full rounded-xl border px-3"
+                  placeholder="75000"
+                />
+              </div>
+
+              <div>
+                <div className="mb-1 text-sm text-gray-600">Ville</div>
+                <input
+                  value={formCity}
+                  onChange={(e) => setFormCity(e.target.value)}
+                  className="h-11 w-full rounded-xl border px-3"
+                  placeholder="Paris"
+                />
+              </div>
+
+              <div>
+                <div className="mb-1 text-sm text-gray-600">Email</div>
+                <input
+                  value={formEmail}
+                  onChange={(e) => setFormEmail(e.target.value)}
+                  className="h-11 w-full rounded-xl border px-3"
+                  placeholder="email@domaine.com"
+                />
+              </div>
+
+              <div>
+                <div className="mb-1 text-sm text-gray-600">Téléphone</div>
+                <input
+                  value={formPhone}
+                  onChange={(e) => setFormPhone(e.target.value)}
+                  className="h-11 w-full rounded-xl border px-3"
+                  placeholder="06..."
+                />
+              </div>
+
+              <div className="col-span-2">
+                <div className="mb-1 text-sm text-gray-600">Notes</div>
+                <textarea
+                  value={formNotes}
+                  onChange={(e) => setFormNotes(e.target.value)}
+                  className="min-h-[140px] w-full rounded-xl border px-3 py-2"
+                  placeholder="Notes internes…"
+                />
               </div>
             </div>
-          </div>
-        )}
-      </ModalShell>
 
-      {/* EDIT */}
-      <ModalShell
-        title="Modifier le client"
-        open={editOpen && !!selected}
-        onClose={() => {
-          setEditOpen(false);
-          setSelected(null);
-        }}
-      >
-        <div className="space-y-4">
-          <div className="grid grid-cols-2 gap-4">
-            <div className="col-span-2">
-              <div className="mb-1 text-sm text-gray-600">Nom</div>
-              <input
-                value={formName}
-                onChange={(e) => setFormName(e.target.value)}
-                className="h-11 w-full rounded-xl border px-3"
-                placeholder="Nom du client"
-              />
-            </div>
-
-            <div className="col-span-2">
-              <div className="mb-1 text-sm text-gray-600">Rue</div>
-              <input
-                value={formStreet}
-                onChange={(e) => setFormStreet(e.target.value)}
-                className="h-11 w-full rounded-xl border px-3"
-                placeholder="Adresse"
-              />
-            </div>
-
-            <div>
-              <div className="mb-1 text-sm text-gray-600">Code postal</div>
-              <input
-                value={formPostal}
-                onChange={(e) => setFormPostal(e.target.value)}
-                className="h-11 w-full rounded-xl border px-3"
-                placeholder="75000"
-              />
-            </div>
-
-            <div>
-              <div className="mb-1 text-sm text-gray-600">Ville</div>
-              <input
-                value={formCity}
-                onChange={(e) => setFormCity(e.target.value)}
-                className="h-11 w-full rounded-xl border px-3"
-                placeholder="Paris"
-              />
-            </div>
-
-            <div>
-              <div className="mb-1 text-sm text-gray-600">Email</div>
-              <input
-                value={formEmail}
-                onChange={(e) => setFormEmail(e.target.value)}
-                className="h-11 w-full rounded-xl border px-3"
-                placeholder="email@domaine.com"
-              />
-            </div>
-
-            <div>
-              <div className="mb-1 text-sm text-gray-600">Téléphone</div>
-              <input
-                value={formPhone}
-                onChange={(e) => setFormPhone(e.target.value)}
-                className="h-11 w-full rounded-xl border px-3"
-                placeholder="06..."
-              />
-            </div>
-
-            <div className="col-span-2">
-              <div className="mb-1 text-sm text-gray-600">Notes</div>
-              <textarea
-                value={formNotes}
-                onChange={(e) => setFormNotes(e.target.value)}
-                className="min-h-[140px] w-full rounded-xl border px-3 py-2"
-                placeholder="Notes internes…"
-              />
+            <div className="flex justify-end gap-2 pt-2">
+              <Button
+                variant="secondary"
+                onClick={() => {
+                  setEditOpen(false);
+                  setSelected(null);
+                }}
+                disabled={saving}
+              >
+                Annuler
+              </Button>
+              <Button variant="default" onClick={() => void saveEdit()} disabled={saving}>
+                {saving ? "Sauvegarde..." : "Sauvegarder"}
+              </Button>
             </div>
           </div>
-
-          <div className="flex justify-end gap-2 pt-2">
-            <Button
-              variant="secondary"
-              onClick={() => {
-                setEditOpen(false);
-                setSelected(null);
-              }}
-              disabled={saving}
-            >
-              Annuler
-            </Button>
-            <Button variant="default" onClick={() => void saveEdit()} disabled={saving}>
-              {saving ? "Sauvegarde..." : "Sauvegarder"}
-            </Button>
-          </div>
-        </div>
-      </ModalShell>
-    </div>
+        </ModalShell>
+      </div>
+    </RequirePageAccessClient>
   );
 }

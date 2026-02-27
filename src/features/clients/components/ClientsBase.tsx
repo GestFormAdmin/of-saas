@@ -3,14 +3,12 @@
 import React, { useEffect, useMemo, useState } from "react";
 import { supabase } from "@/lib/supabaseClient";
 import ClientRowActions from "./ClientRowActions";
-import { usePermissions } from "@/features/auth/PermissionsProviderClient";
 import { PageHeader } from "@/components/ui/PageHeader";
 import { Button } from "@/components/ui/Button";
 import { Card, CardBody } from "@/components/ui/Card";
 import { EmptyState } from "@/components/ui/EmptyState";
-
-// ✅ AJOUT (guard)
 import RequirePageAccessClient from "@/features/auth/RequirePageAccessClient";
+
 /* ================== STYLES (table) ================== */
 const tableStyle: React.CSSProperties = {
   width: "100%",
@@ -99,6 +97,7 @@ type ClientKpis = {
   cash_collected: number;
   cash_pending: number;
   quotes_lost: number;
+  cash_total_all_time: number;
 };
 
 /* ================== HELPERS ================== */
@@ -128,14 +127,8 @@ function ModalShell({
   if (!open) return null;
 
   return (
-    <div
-      className="fixed inset-0 z-50 flex items-center justify-center bg-black/30 p-4"
-      onMouseDown={onClose}
-    >
-      <div
-        className="w-full max-w-2xl rounded-2xl bg-white p-6 shadow"
-        onMouseDown={(e) => e.stopPropagation()}
-      >
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/30 p-4" onMouseDown={onClose}>
+      <div className="w-full max-w-2xl rounded-2xl bg-white p-6 shadow" onMouseDown={(e) => e.stopPropagation()}>
         <div className="flex items-center justify-between gap-4">
           <h2 className="text-xl font-semibold">{title}</h2>
           <button
@@ -218,8 +211,6 @@ function KpiCard({
 export default function ClientsPageClient() {
   const currentYear = useMemo(() => new Date().getFullYear(), []);
 
-  // ✅ AJOUT : permissions depuis le provider
-const { allowedPages, isLoading } = usePermissions();
   const [loading, setLoading] = useState(true);
   const [orgId, setOrgId] = useState<string | null>(null);
   const [clients, setClients] = useState<Client[]>([]);
@@ -267,6 +258,7 @@ const { allowedPages, isLoading } = usePermissions();
     | "city"
     | "learners_current_year"
     | "learners_total"
+    | "cash_total"
     | "cash_collected"
     | "cash_pending"
     | "quotes_lost";
@@ -283,6 +275,7 @@ const { allowedPages, isLoading } = usePermissions();
     | "city"
     | "learners_current_year"
     | "learners_total"
+    | "cash_total"
     | "cash_collected"
     | "cash_pending"
     | "quotes_lost"
@@ -295,6 +288,7 @@ const { allowedPages, isLoading } = usePermissions();
     city: true,
     learners_current_year: true,
     learners_total: true,
+    cash_total: true,
     cash_collected: true,
     cash_pending: true,
     quotes_lost: true,
@@ -308,9 +302,7 @@ const { allowedPages, isLoading } = usePermissions();
       const raw = localStorage.getItem(COLS_STORAGE_KEY);
       if (!raw) return;
       const parsed = JSON.parse(raw);
-      if (parsed && typeof parsed === "object") {
-        setVisibleCols((prev) => ({ ...prev, ...parsed }));
-      }
+      if (parsed && typeof parsed === "object") setVisibleCols((prev) => ({ ...prev, ...parsed }));
     } catch {}
   }, []);
 
@@ -322,7 +314,6 @@ const { allowedPages, isLoading } = usePermissions();
 
   async function loadOrgId() {
     const { data, error } = await supabase.rpc("current_org_id");
-    console.log("[DEBUG] current_org_id =", data);
     if (error) throw error;
 
     const oid = (data as string) ?? null;
@@ -339,7 +330,8 @@ const { allowedPages, isLoading } = usePermissions();
         cash_collected: 0,
         cash_pending: 0,
         quotes_lost: 0,
-      }
+              cash_total_all_time: 0,
+}
     );
   }
 
@@ -351,7 +343,6 @@ const { allowedPages, isLoading } = usePermissions();
       const oid = orgId ?? (await loadOrgId());
       setOrgId(oid);
 
-      // STOP si pas d'org
       if (!oid) {
         setClients([]);
         setError("Aucun organisme associé à ce compte.");
@@ -383,8 +374,8 @@ const { allowedPages, isLoading } = usePermissions();
 
       try {
         const [{ data: kpiData, error: kpiErr }, { data: kpiPrevData, error: kpiPrevErr }] = await Promise.all([
-          supabase.rpc("clients_kpis", { p_year: currentYear }),
-          supabase.rpc("clients_kpis", { p_year: currentYear - 1 }),
+          supabase.rpc("clients_kpis_v2", { p_year: currentYear }),
+          supabase.rpc("clients_kpis_v2", { p_year: currentYear - 1 }),
         ]);
 
         if (!kpiErr && Array.isArray(kpiData)) {
@@ -398,7 +389,8 @@ const { allowedPages, isLoading } = usePermissions();
               cash_collected: Number(row.cash_collected ?? 0),
               cash_pending: Number(row.cash_pending ?? 0),
               quotes_lost: Number(row.quotes_lost ?? 0),
-            };
+                                        cash_total_all_time: Number(row.cash_total_all_time ?? 0),
+};
           });
           setKpisByClientId(map);
         } else {
@@ -409,14 +401,15 @@ const { allowedPages, isLoading } = usePermissions();
           const mapPrev: Record<string, ClientKpis> = {};
           (kpiPrevData as any[]).forEach((row) => {
             if (!row?.client_id) return;
-            mapPrev[row.client_id] = {
-              client_id: row.client_id,
-              learners_current_year: Number(row.learners_current_year ?? 0),
-              learners_total: Number(row.learners_total ?? 0),
-              cash_collected: Number(row.cash_collected ?? 0),
-              cash_pending: Number(row.cash_pending ?? 0),
-              quotes_lost: Number(row.quotes_lost ?? 0),
-            };
+           mapPrev[row.client_id] = {
+  client_id: row.client_id,
+  learners_current_year: Number(row.learners_current_year ?? 0),
+  learners_total: Number(row.learners_total ?? 0),
+  cash_collected: Number(row.cash_collected ?? 0),
+  cash_pending: Number(row.cash_pending ?? 0),
+  quotes_lost: Number(row.quotes_lost ?? 0),
+  cash_total_all_time: Number(row.cash_total_all_time ?? 0), // ✅ AJOUTE ÇA
+};
           });
           setKpisPrevByClientId(mapPrev);
         } else {
@@ -435,7 +428,7 @@ const { allowedPages, isLoading } = usePermissions();
   }
 
   useEffect(() => {
-    fetchClients();
+    void fetchClients();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
@@ -603,6 +596,7 @@ const { allowedPages, isLoading } = usePermissions();
       { key: "city" as const, label: "Ville", align: "left" as const, sortable: true },
       { key: "learners_current_year" as const, label: `Appr. ${currentYear}`, align: "right" as const, sortable: true },
       { key: "learners_total" as const, label: "Appr. total", align: "right" as const, sortable: true },
+      { key: "cash_total" as const, label: "CA total", align: "right" as const, sortable: true },
       { key: "cash_collected" as const, label: "CA encaissé", align: "right" as const, sortable: true },
       { key: "cash_pending" as const, label: "CA attente", align: "right" as const, sortable: true },
       { key: "quotes_lost" as const, label: "Devis sans suite", align: "right" as const, sortable: true },
@@ -638,6 +632,8 @@ const { allowedPages, isLoading } = usePermissions();
         return kpi.learners_current_year;
       case "learners_total":
         return kpi.learners_total;
+      case "cash_total":
+        return kpi.cash_total_all_time;
       case "cash_collected":
         return kpi.cash_collected;
       case "cash_pending":
@@ -672,12 +668,10 @@ const { allowedPages, isLoading } = usePermissions();
 
   const showEmpty = !loading && clientsSorted.length === 0 && !error;
 
-  // ✅ IMPORTANT : wrapper guard
   return (
-<RequirePageAccessClient pageKey="clients" fallback={null}>      <div className="space-y-6">
-        <PageHeader
-          title="Clients"
-          description="Gestion des clients" />
+    <RequirePageAccessClient pageKey="clients" fallback={null}>
+      <div className="space-y-6">
+        <PageHeader title="Clients" description="Gestion des clients" />
 
         {error ? (
           <div className="rounded-2xl border border-red-200 bg-red-50 p-4 text-sm">
@@ -687,8 +681,9 @@ const { allowedPages, isLoading } = usePermissions();
         ) : null}
 
         {/* KPI */}
-        <div className="grid grid-cols-5 gap-4">
+        <div className="grid grid-cols-1 gap-4 md:grid-cols-6">
           <KpiCard title="Clients" value={`${clients.length}`} sub="Total clients" tone="gray" icon="👥" />
+
           <KpiCard
             title={`Apprenants ${currentYear}`}
             value={`${totals.learners_current_year}`}
@@ -696,6 +691,15 @@ const { allowedPages, isLoading } = usePermissions();
             tone="blue"
             icon="🎓"
           />
+
+          <KpiCard
+            title="CA total"
+            value={formatMoneyEUR(totals.cash_collected + totals.cash_pending)}
+            sub={`${currentYear - 1}: ${formatMoneyEUR(totalsPrev.cash_collected + totalsPrev.cash_pending)}`}
+            tone="gray"
+            icon="💰"
+          />
+
           <KpiCard
             title="CA encaissé"
             value={formatMoneyEUR(totals.cash_collected)}
@@ -703,6 +707,7 @@ const { allowedPages, isLoading } = usePermissions();
             tone="green"
             icon="€"
           />
+
           <KpiCard
             title="CA en attente"
             value={formatMoneyEUR(totals.cash_pending)}
@@ -710,6 +715,7 @@ const { allowedPages, isLoading } = usePermissions();
             tone="orange"
             icon="⏱"
           />
+
           <KpiCard
             title="Devis sans suite"
             value={`${totals.quotes_lost}`}
@@ -725,29 +731,18 @@ const { allowedPages, isLoading } = usePermissions();
             <div className="flex flex-wrap items-center justify-between gap-3">
               <div className="text-lg font-semibold">Liste des clients</div>
 
-              <div className="flex flex-wrap items-center justify-between gap-3">
-  <div className="text-lg font-semibold">Liste des clients</div>
+              <div className="relative flex items-center gap-2">
+                <Button variant="default" onClick={openCreate} disabled={loading}>
+                  + Ajouter un client
+                </Button>
 
-  <div className="relative flex items-center gap-2">
-    <Button variant="default" onClick={openCreate} disabled={loading}>
-      + Ajouter un client
-    </Button>
+                <Button variant="secondary" onClick={() => void fetchClients()} disabled={loading}>
+                  Rafraîchir
+                </Button>
 
-    <Button variant="secondary" onClick={() => void fetchClients()} disabled={loading}>
-      Rafraîchir
-    </Button>
-
-    <Button variant="secondary" onClick={() => setColsOpen((v) => !v)}>
-      Colonnes
-    </Button>
-
-    {colsOpen && (
-      <div style={popoverStyle}>
-        ...
-      </div>
-    )}
-  </div>
-</div>
+                <Button variant="secondary" onClick={() => setColsOpen((v) => !v)}>
+                  Colonnes
+                </Button>
 
                 {colsOpen && (
                   <div style={popoverStyle}>
@@ -759,6 +754,7 @@ const { allowedPages, isLoading } = usePermissions();
                         ["city", "Ville"],
                         ["learners_current_year", `Appr. ${currentYear}`],
                         ["learners_total", "Appr. total"],
+                        ["cash_total", "CA total"],
                         ["cash_collected", "CA encaissé"],
                         ["cash_pending", "CA attente"],
                         ["quotes_lost", "Devis sans suite"],
@@ -801,7 +797,7 @@ const { allowedPages, isLoading } = usePermissions();
                   </div>
                 )}
               </div>
-            
+            </div>
 
             <div className="mt-4">
               <input
@@ -814,9 +810,7 @@ const { allowedPages, isLoading } = usePermissions();
 
             {showEmpty ? (
               <div className="mt-6">
-                <EmptyState
-                  title="Aucun client"
-                  description="Crée ton premier client pour commencer." />
+                <EmptyState title="Aucun client" description="Crée ton premier client pour commencer." />
               </div>
             ) : (
               <div className="mt-4 overflow-hidden rounded-2xl border">
@@ -874,7 +868,6 @@ const { allowedPages, isLoading } = usePermissions();
                       ) : (
                         clientsSorted.map((c) => {
                           const k = kpisForYear(kpisByClientId, c.id);
-
                           return (
                             <tr key={c.id}>
                               {columns.map((col) => {
@@ -884,6 +877,7 @@ const { allowedPages, isLoading } = usePermissions();
                                       {c.name ?? "—"}
                                     </td>
                                   );
+
                                 if (col.key === "city")
                                   return (
                                     <td key={col.key} style={tdStyle}>
@@ -902,6 +896,13 @@ const { allowedPages, isLoading } = usePermissions();
                                   return (
                                     <td key={col.key} style={tdStyleRight}>
                                       {k.learners_total}
+                                    </td>
+                                  );
+
+                                if (col.key === "cash_total")
+                                  return (
+                                    <td key={col.key} style={tdStyleRight}>
+                                      {formatMoneyEUR(k.cash_total_all_time)}
                                     </td>
                                   );
 
@@ -1167,6 +1168,6 @@ const { allowedPages, isLoading } = usePermissions();
           </div>
         </ModalShell>
       </div>
-</RequirePageAccessClient>
+    </RequirePageAccessClient>
   );
 }
