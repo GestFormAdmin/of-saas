@@ -3,7 +3,7 @@
 import React, { useEffect, useMemo, useState } from "react";
 import { supabase } from "@/lib/supabaseClient";
 
-type DeliveryType = "direct" | "subcontract";
+type DeliveryType = "direct" | "subcontract" | "sous_traitee";
 
 type ClientRow = { id: string; name: string };
 type ProductRow = { id: string; name: string; nb_hours?: number | null };
@@ -21,6 +21,12 @@ type Props = {
   open: boolean;
   onClose: () => void;
   onCreated?: (s: CreatedSessionPayload) => void;
+
+  // ✅ NOUVEAU: ouvre le modal "création multiple apprenants"
+  onOpenAddLearners?: (session: CreatedSessionPayload) => void;
+
+  // ✅ optionnel si tu réutilises ce modal en édition
+  mode?: "create" | "edit";
 };
 
 const CLIENTS_TABLE = "clients";
@@ -53,7 +59,7 @@ function validate(form: {
 }
 
 export default function CreateSessionModal(props: Props) {
-  const { open, onClose, onCreated } = props;
+  const { open, onClose, onCreated, onOpenAddLearners, mode = "create" } = props;
 
   const [clients, setClients] = useState<ClientRow[]>([]);
   const [products, setProducts] = useState<ProductRow[]>([]);
@@ -61,6 +67,9 @@ export default function CreateSessionModal(props: Props) {
 
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
+
+  // ✅ stocke la session créée pour activer le bouton "Ajouter apprenants"
+  const [createdSession, setCreatedSession] = useState<CreatedSessionPayload | null>(null);
 
   const [form, setForm] = useState({
     product_id: "",
@@ -83,6 +92,7 @@ export default function CreateSessionModal(props: Props) {
   function reset() {
     setError(null);
     setSaving(false);
+    setCreatedSession(null);
     setForm({
       product_id: "",
       name: "",
@@ -194,7 +204,6 @@ export default function CreateSessionModal(props: Props) {
         location_city: form.location_city.trim() || null,
       };
 
-      // IMPORTANT: on récupère la row créée pour la renvoyer au parent
       const { data, error: insErr } = await supabase
         .from(SESSIONS_TABLE)
         .insert(payload)
@@ -209,8 +218,14 @@ export default function CreateSessionModal(props: Props) {
 
       const created = data as CreatedSessionPayload;
 
-      onClose();
+      // ✅ mémorise pour activer "Ajouter apprenants"
+      setCreatedSession(created);
+
+      // ✅ remonte au parent
       onCreated?.(created);
+
+      // ✅ si tu veux fermer direct en édition uniquement
+      if (mode === "edit") onClose();
     } catch (e: any) {
       setError(e?.message ?? "Erreur création session.");
     } finally {
@@ -225,6 +240,10 @@ export default function CreateSessionModal(props: Props) {
     if (!required(form.start_date) || !required(form.end_date)) return false;
     return true;
   }, [form, saving]);
+
+  const canAddLearners = useMemo(() => {
+    return !!createdSession && !saving;
+  }, [createdSession, saving]);
 
   // ESC ferme
   useEffect(() => {
@@ -250,7 +269,9 @@ export default function CreateSessionModal(props: Props) {
         {/* Header */}
         <div className="mb-5 flex items-start justify-between gap-4">
           <div>
-            <div className="text-xl font-semibold">Créer une session</div>
+            <div className="text-xl font-semibold">
+              {mode === "edit" ? "Modifier la session" : "Créer une session"}
+            </div>
             <div className="mt-1 text-sm text-muted-foreground">
               Renseigne la formation, les dates et le type.
             </div>
@@ -329,7 +350,6 @@ export default function CreateSessionModal(props: Props) {
                 <option value="direct">Client direct</option>
                 <option value="subcontract">Sous-traitance</option>
                 <option value="sous_traitee">Sous-traitée</option>
-
               </select>
             </div>
           </div>
@@ -409,19 +429,35 @@ export default function CreateSessionModal(props: Props) {
 
         {/* Footer */}
         <div className="mt-6 flex justify-end gap-3">
-          <button
-            onClick={onClose}
-            className="rounded-lg border px-4 py-2"
-            disabled={saving}
-          >
+          <button onClick={onClose} className="rounded-lg border px-4 py-2" disabled={saving}>
             Annuler
           </button>
+
+          {/* ✅ NOUVEAU */}
+          <button
+            onClick={() => {
+              if (!createdSession) return;
+              onOpenAddLearners?.(createdSession);
+            }}
+            className="rounded-lg border px-4 py-2"
+            disabled={!canAddLearners || !onOpenAddLearners}
+            title={
+              !createdSession
+                ? "Crée/Enregistre d'abord la session"
+                : !onOpenAddLearners
+                ? "Handler manquant"
+                : ""
+            }
+          >
+            Ajouter apprenants
+          </button>
+
           <button
             onClick={save}
             className="rounded-lg bg-black px-4 py-2 text-white"
             disabled={!canSave}
           >
-            {saving ? "Création…" : "Créer"}
+            {saving ? (mode === "edit" ? "Enregistrement…" : "Création…") : mode === "edit" ? "Enregistrer" : "Créer"}
           </button>
         </div>
       </div>

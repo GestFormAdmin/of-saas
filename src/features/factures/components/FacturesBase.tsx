@@ -177,7 +177,7 @@ const headerRowStyle: React.CSSProperties = {
 
 const kpiGridStyle: React.CSSProperties = {
   display: "grid",
-  gridTemplateColumns: "repeat(5, minmax(0, 1fr))",
+  gridTemplateColumns: "repeat(6, minmax(0, 1fr))",
   gap: 14,
   marginTop: 14,
 };
@@ -649,7 +649,7 @@ export default function FacturesDevisPage() {
     setRows(enriched);
   }
 
-  /* ================== KPI ================== */
+ 
   const kpi = useMemo(() => {
     const nowYear = new Date().getFullYear();
     const prevYear = nowYear - 1;
@@ -672,6 +672,12 @@ export default function FacturesDevisPage() {
       .filter((r) => (r.urssaf_paid ?? false) === false)
       .reduce((acc, r) => acc + (Number(r.urssaf_amount) || 0), 0);
 
+    const quotesEnCours = quotes.filter((r) => r.status === "EN_COURS");
+    const quotesEnCoursAmount = quotesEnCours.reduce(
+      (acc, r) => acc + (Number(r.amount_ttc) || 0),
+      0
+    );
+
     const quotesSansSuite = quotes.filter((r) => r.status === "SANS_SUITE");
     const quotesSansSuiteAmount = quotesSansSuite.reduce((acc, r) => acc + (Number(r.amount_ttc) || 0), 0);
 
@@ -686,6 +692,11 @@ export default function FacturesDevisPage() {
       pendingAmount,
       pendingCount: pendingInvoices.length,
       urssafPending,
+
+      // ✅ NOUVEAU KPI
+      quotesEnCoursAmount,
+      quotesEnCoursCount: quotesEnCours.length,
+
       quotesSansSuiteAmount,
       quotesSansSuiteCount: quotesSansSuite.length,
       quotesNonRetenusAmount,
@@ -1029,8 +1040,10 @@ export default function FacturesDevisPage() {
       <style jsx>{`
         .kpiGrid {
           display: grid;
-          grid-template-columns: repeat(5, minmax(0, 1fr));
-          gap: 14px;
+.kpiGrid {
+  grid-template-columns: repeat(6, minmax(0, 1fr));
+}
+            gap: 14px;
           margin-top: 14px;
         }
         @media (max-width: 1100px) {
@@ -1091,6 +1104,13 @@ export default function FacturesDevisPage() {
           tone="blue"
           icon="🚫"
         />
+        <KpiCard
+  title="Devis en cours"
+  value={euro(kpi.quotesEnCoursAmount)}
+  sub={`${kpi.quotesEnCoursCount} devis`}
+  tone="blue"
+  icon="📝"
+/>
         <KpiCard
           title="Devis non retenus"
           value={euro(kpi.quotesNonRetenusAmount)}

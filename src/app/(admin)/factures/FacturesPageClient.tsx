@@ -675,6 +675,11 @@ export default function FacturesDevisPage() {
 
     const quotesNonRetenus = quotes.filter((r) => r.status === "NON_RETENU");
     const quotesNonRetenusAmount = quotesNonRetenus.reduce((acc, r) => acc + (Number(r.amount_ttc) || 0), 0);
+const quotesEnCours = quotes.filter((r) => r.status === "EN_COURS");
+const quotesEnCoursAmount = quotesEnCours.reduce(
+  (acc, r) => acc + (Number(r.amount_ttc) || 0),
+  0
+);
 
     return {
       nowYear,
@@ -688,6 +693,8 @@ export default function FacturesDevisPage() {
       quotesSansSuiteCount: quotesSansSuite.length,
       quotesNonRetenusAmount,
       quotesNonRetenusCount: quotesNonRetenus.length,
+      quotesEnCoursAmount,
+quotesEnCoursCount: quotesEnCours.length,
     };
   }, [rows]);
 
@@ -1066,6 +1073,7 @@ export default function FacturesDevisPage() {
       </div>
 
       {/* KPI */}
+
       <div className="kpiGrid" style={kpiGridStyle}>
         <KpiCard
           title={`CA annuel ${kpi.nowYear}`}
@@ -1082,13 +1090,14 @@ export default function FacturesDevisPage() {
           icon="⏳"
         />
         <KpiCard title="URSSAF en attente" value={euro(kpi.urssafPending)} sub=" " tone="red" icon="🧾" />
+        
         <KpiCard
-          title="Devis sans suite"
-          value={euro(kpi.quotesSansSuiteAmount)}
-          sub={`${kpi.quotesSansSuiteCount} devis`}
-          tone="blue"
-          icon="🚫"
-        />
+  title="Devis en cours"
+  value={euro(kpi.quotesEnCoursAmount)}
+  sub={`${kpi.quotesEnCoursCount} devis`}
+  tone="blue"
+  icon="📝"
+/>
         <KpiCard
           title="Devis non retenus"
           value={euro(kpi.quotesNonRetenusAmount)}
@@ -2172,22 +2181,45 @@ function ViewCard(props: { label: string; value: string; wide?: boolean }) {
   );
 }
 
-function KpiCard(props: { title: string; value: string; sub: string; tone: "green" | "orange" | "red" | "blue"; icon: string }) {
+function KpiCard(props: {
+  title: string;
+  value: string;
+  sub: string;
+  tone: "green" | "orange" | "red" | "blue";
+  icon: string;
+}) {
   const toneMap: Record<string, { bg: string; icBg: string }> = {
     green: { bg: "rgba(34,197,94,0.08)", icBg: "rgba(34,197,94,1)" },
     orange: { bg: "rgba(245,158,11,0.10)", icBg: "rgba(245,158,11,1)" },
     red: { bg: "rgba(239,68,68,0.10)", icBg: "rgba(239,68,68,1)" },
     blue: { bg: "rgba(59,130,246,0.10)", icBg: "rgba(59,130,246,1)" },
   };
+
   const t = toneMap[props.tone];
 
   return (
     <div style={{ ...cardStyle, padding: 14, background: t.bg }}>
       <div style={{ display: "flex", alignItems: "flex-start", justifyContent: "space-between", gap: 10 }}>
         <div>
-          <div style={{ fontSize: 13, fontWeight: 950, opacity: 0.7 }}>{props.title}</div>
-          <div style={{ fontSize: 30, fontWeight: 980, letterSpacing: -0.4, marginTop: 8 }}>{props.value}</div>
-          <div style={{ marginTop: 6, opacity: 0.65, fontWeight: 900 }}>{props.sub}</div>
+          <div style={{ fontSize: 13, fontWeight: 950, opacity: 0.7 }}>
+            {props.title}
+          </div>
+
+          <div
+            style={{
+              fontSize: 26,
+              fontWeight: 980,
+              letterSpacing: -0.3,
+              marginTop: 8,
+              whiteSpace: "nowrap",
+            }}
+          >
+            {props.value}
+          </div>
+
+          <div style={{ marginTop: 6, opacity: 0.65, fontWeight: 900 }}>
+            {props.sub}
+          </div>
         </div>
 
         <div

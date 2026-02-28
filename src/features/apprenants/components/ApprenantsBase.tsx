@@ -22,25 +22,22 @@ type ApprenantViewRow = {
   client_name?: string | null;
   session_label?: string | null;
 
-  // ✅ colonnes demandées (calculées depuis le PRODUIT de la/les session(s))
-  formation_hours_total?: number | null; // <- products.duration_hours
-  formation_days_total?: number | null; // <- pas dispo chez toi => null
-  formation_objectives?: string | null; // <- products.objective (text) ou stringify(products.objectives jsonb)
+  formation_hours_total?: number | null;
+  formation_days_total?: number | null;
+  formation_objectives?: string | null;
 };
 
 type Client = { id: string; name: string };
 type Produit = { id: string; name: string };
 type Competence = { id: string; label: string };
 
-// ✅ SCHEMA CONFIRMÉ CHEZ TOI : sessions.product_id (uuid)
-// products: duration_hours (int), objective (text), objectives (jsonb)
 type Session = {
   id: string;
   name: string;
   start_date: string | null;
   end_date: string | null;
   product_id: string | null;
-  product?: { id: string; name: string } | null; // pour l’UI (liste sessions)
+  product?: { id: string; name: string } | null;
 };
 
 type ApprenantDb = {
@@ -437,6 +434,15 @@ const ALL_COLUMNS: { key: ColKey; label: string }[] = [
 export default function ApprenantsPageClient() {
   const searchParams = useSearchParams();
 
+  const [multiCtx, setMultiCtx] = useState<{
+    session_id: string;
+    product_id?: string;
+    client_id?: string;
+    start_date?: string;
+    end_date?: string;
+    structure?: string;
+  } | null>(null);
+
   const [loading, setLoading] = useState(true);
   const [rows, setRows] = useState<ApprenantViewRow[]>([]);
   const [error, setError] = useState<string | null>(null);
@@ -605,18 +611,20 @@ export default function ApprenantsPageClient() {
     setProduits((produitsRes.data ?? []) as Produit[]);
   };
 
-  // ✅ products meta (schema réel)
   const fetchProductsMeta = async (productIds: string[]) => {
     const out = {
       objectivesById: new Map<string, string>(),
       hoursById: new Map<string, number>(),
-      daysById: new Map<string, number>(), // pas dispo => vide
+      daysById: new Map<string, number>(),
       nameById: new Map<string, string>(),
     };
 
     if (productIds.length === 0) return out;
 
-    const { data, error } = await supabase.from("products").select("id,name,duration_hours,objective,objectives").in("id", productIds);
+    const { data, error } = await supabase
+      .from("products")
+      .select("id,name,duration_hours,objective,objectives")
+      .in("id", productIds);
     if (error) return out;
 
     (data ?? []).forEach((p: any) => {
@@ -646,8 +654,7 @@ export default function ApprenantsPageClient() {
 
     return out;
   };
-
-  // ✅ LOAD ROWS: durée/objectifs = produit des sessions (si unique), sinon fallback apprenant.product_id
+  // ===== BLOCK 3/4 =====
   const loadRows = async () => {
     setLoading(true);
     setError(null);
@@ -673,8 +680,10 @@ export default function ApprenantsPageClient() {
       return;
     }
 
-    // meta apprenant (client_id, product_id)
-    const { data: apprData, error: apprDataErr } = await supabase.from("apprenants").select("id, client_id, product_id").in("id", baseIds);
+    const { data: apprData, error: apprDataErr } = await supabase
+      .from("apprenants")
+      .select("id, client_id, product_id")
+      .in("id", baseIds);
 
     if (apprDataErr) {
       setError(errorToMessage(apprDataErr));
@@ -688,7 +697,6 @@ export default function ApprenantsPageClient() {
       apprById.set(a.id, { client_id: a.client_id ?? null, product_id: a.product_id ?? null });
     });
 
-    // clients
     const clientIds = Array.from(new Set((apprData ?? []).map((a: any) => a.client_id).filter(Boolean)));
     const clientNameById = new Map<string, string>();
 
@@ -705,13 +713,11 @@ export default function ApprenantsPageClient() {
       clientNameByAppr.set(r.id, cid ? clientNameById.get(cid) ?? null : null);
     });
 
-    // pivots apprenant_sessions
     const { data: piv, error: pivErr } = await supabase
       .from("apprenant_sessions")
       .select("apprenant_id, session_id")
       .in("apprenant_id", baseIds);
 
-    // fallback products meta via apprenant.product_id (au cas où)
     const fallbackProductIds = Array.from(
       new Set(
         baseRows
@@ -745,7 +751,6 @@ export default function ApprenantsPageClient() {
 
     const sessionIds = Array.from(new Set((piv ?? []).map((x: any) => x.session_id).filter(Boolean)));
 
-    // sessions: id,name,product_id
     const sessionNameById = new Map<string, string>();
     const sessionProductById = new Map<string, string>();
 
@@ -771,15 +776,13 @@ export default function ApprenantsPageClient() {
       sessionObjsByAppr.set(aid, arr);
     });
 
-    // meta products des sessions (pour label formation + durée/objectifs)
     const sessionProductIds = Array.from(new Set(Array.from(sessionProductById.values()).filter(Boolean))) as string[];
     const sessionMeta = await fetchProductsMeta(sessionProductIds);
 
     const enriched = baseRows.map((r) => {
       const sess = sessionObjsByAppr.get(r.id) ?? [];
 
-      const session_label =
-        sess.length === 0 ? null : sess.length === 1 ? (sess[0].name ?? "—") : `${sess.length} sessions`;
+      const session_label = sess.length === 0 ? null : sess.length === 1 ? (sess[0].name ?? "—") : `${sess.length} sessions`;
 
       const prodIds = sess.map((s) => s.product_id).filter(Boolean) as string[];
       const uniqProdIds = Array.from(new Set(prodIds));
@@ -792,20 +795,26 @@ export default function ApprenantsPageClient() {
         )
       ).join(", ");
 
-      // ✅ produit "concerné"
       const chosenPid = uniqProdIds.length === 1 ? uniqProdIds[0] : apprById.get(r.id)?.product_id ?? null;
 
-      const objectives = chosenPid ? sessionMeta.objectivesById.get(chosenPid) ?? fallbackMeta.objectivesById.get(chosenPid) ?? null : null;
+      const objectives = chosenPid
+        ? sessionMeta.objectivesById.get(chosenPid) ?? fallbackMeta.objectivesById.get(chosenPid) ?? null
+        : null;
+
       const hours = chosenPid ? sessionMeta.hoursById.get(chosenPid) ?? fallbackMeta.hoursById.get(chosenPid) ?? null : null;
 
       return {
         ...r,
         client_name: clientNameByAppr.get(r.id) ?? null,
         session_label,
-        formations: (formations ?? "").trim() ? formations : chosenPid ? sessionMeta.nameById.get(chosenPid) ?? fallbackMeta.nameById.get(chosenPid) ?? "" : "",
+        formations: (formations ?? "").trim()
+          ? formations
+          : chosenPid
+            ? sessionMeta.nameById.get(chosenPid) ?? fallbackMeta.nameById.get(chosenPid) ?? ""
+            : "",
         formation_objectives: objectives,
         formation_hours_total: typeof hours === "number" ? hours : null,
-        formation_days_total: null, // ✅ pas de jours dans ton schema
+        formation_days_total: null,
       };
     });
 
@@ -814,7 +823,7 @@ export default function ApprenantsPageClient() {
 
     void loadProductStats(enriched);
   };
-  // ===== BLOCK 3/4 =====
+
   const loadProductStats = async (sourceRows?: ApprenantViewRow[]) => {
     setProductStatsLoading(true);
     setError(null);
@@ -845,7 +854,10 @@ export default function ApprenantsPageClient() {
         return;
       }
 
-      const { data: pivData, error: pivErr } = await supabase.from("apprenant_competences").select("apprenant_id, validated").in("apprenant_id", apprIds);
+      const { data: pivData, error: pivErr } = await supabase
+        .from("apprenant_competences")
+        .select("apprenant_id, validated")
+        .in("apprenant_id", apprIds);
       if (pivErr) {
         setError(errorToMessage(pivErr));
         setProductStats([]);
@@ -931,7 +943,6 @@ export default function ApprenantsPageClient() {
     setCompChecks(init);
   };
 
-  // ✅ UI modal sessions: schema réel (sessions.product_id + join products(id,name) uniquement)
   const loadSessionsForEndDate = async (endDate: string) => {
     setSessionsLoading(true);
     setSessionsError(null);
@@ -981,11 +992,13 @@ export default function ApprenantsPageClient() {
       await loadRefs();
       await loadRows();
     })();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   useEffect(() => {
     if (!openCreate && !openEdit && !openMulti) return;
     void loadCompetencesForProduct(form.product_id, undefined);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [form.product_id, openCreate, openEdit, openMulti]);
 
   useEffect(() => {
@@ -999,6 +1012,7 @@ export default function ApprenantsPageClient() {
     }
 
     void loadSessionsForEndDate(form.end_date);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [form.end_date, openCreate, openEdit, openMulti]);
 
   const openCreateModal = () => {
@@ -1030,31 +1044,44 @@ export default function ApprenantsPageClient() {
 
   useEffect(() => {
     const multi = searchParams.get("multi");
-    const sessionId = searchParams.get("session_id");
-    if (multi !== "1" || !sessionId) return;
+    const session_id = searchParams.get("session_id");
+    if (multi !== "1" || !session_id) return;
 
-    openMultiModal();
+    const product_id = searchParams.get("product_id") || "";
+    const client_id = searchParams.get("client_id") || "";
+    const start_date = searchParams.get("start_date") || "";
+    const end_date = searchParams.get("end_date") || "";
+    const structure = searchParams.get("structure") || "";
 
-    const product_id = searchParams.get("product_id");
-    const client_id = searchParams.get("client_id");
-    const start_date = searchParams.get("start_date");
-    const end_date = searchParams.get("end_date");
-    const structure = searchParams.get("structure");
+    setMultiCtx({
+      session_id,
+      product_id,
+      client_id,
+      start_date,
+      end_date,
+      structure,
+    });
 
-    setForm((p) => ({
-      ...p,
+    setForm({
+      ...EMPTY_FORM,
       product_id: product_id || null,
       client_id: client_id || null,
       start_date: start_date || null,
       end_date: end_date || null,
-      structure: structure || p.structure || null,
-    }));
+      structure: structure || null,
+    });
 
-    setSelectedSessionIds([sessionId]);
+    setSelectedSessionIds([session_id]);
 
-    if (typeof window !== "undefined") {
-      window.history.replaceState(null, "", "/apprenants");
-    }
+    setMultiRows([{ ...EMPTY_MULTI_ROW, key: makeKey() }]);
+    setMultiError(null);
+
+    setOpenMulti(true);
+
+    const url = new URL(window.location.href);
+    url.searchParams.delete("multi");
+    window.history.replaceState({}, "", url.toString());
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [searchParams]);
 
   const openViewModal = async (id: string) => {
@@ -1217,30 +1244,139 @@ export default function ApprenantsPageClient() {
 
   const saveMultiCreate = async () => {
     if (multiSaving) return;
-    setMultiSaving(true);
+
     setMultiError(null);
+    setMultiSaving(true);
 
     try {
-      const clean = multiRows
-        .map((r) => ({
-          last_name: r.last_name.trim(),
-          first_name: r.first_name.trim(),
-          birth_date: r.birth_date || null,
-          email: r.email?.trim() || null,
-        }))
-        .filter((r) => r.last_name.length > 0 || r.first_name.length > 0 || (r.email ?? "").length > 0 || !!r.birth_date);
-
-      const valid = clean.filter((r) => r.last_name.length > 0 && r.first_name.length > 0);
-      if (valid.length === 0) {
-        setMultiError("Ajoute au moins 1 apprenant avec Nom + Prénom.");
+      const sessionId = multiCtx?.session_id ?? searchParams.get("session_id") ?? "";
+      if (!sessionId) {
+        setMultiError("session_id manquant : impossible de lier les apprenants à la session.");
         return;
       }
 
+      const org = await supabase.rpc("current_org_id");
+      const orgId = (org.data as string) ?? "";
+      if (org.error || !orgId) {
+        setMultiError(org.error?.message ?? "Organisation introuvable (current_org_id).");
+        return;
+      }
+
+      const cleanRows = (multiRows ?? [])
+        .map((r) => ({
+          key: r.key,
+          last_name: String(r.last_name ?? "").trim(),
+          first_name: String(r.first_name ?? "").trim(),
+          birth_date: r.birth_date ?? null,
+          email: (r.email ?? "").trim() || null,
+        }))
+        .filter((r) => r.last_name.length > 0 || r.first_name.length > 0);
+
+      if (cleanRows.length === 0) {
+        setMultiError("Ajoute au moins 1 apprenant (nom/prénom).");
+        return;
+      }
+
+      const common = {
+        product_id: form.product_id,
+        client_id: form.client_id,
+        structure: form.structure?.trim() || null,
+        start_date: form.start_date || null,
+        end_date: form.end_date || null,
+        forprev: form.forprev,
+        candidate_manual_validated: !!form.candidate_manual_validated,
+        street: form.street?.trim() || null,
+        postal_code: form.postal_code?.trim() || null,
+        city: form.city?.trim() || null,
+      };
+
+      const apprenantsPayload = cleanRows.map((r) => ({
+        org_id: orgId,
+        last_name: r.last_name || null,
+        first_name: r.first_name || null,
+        birth_date: r.birth_date,
+        email: r.email,
+        ...common,
+      }));
+
+      const { data: createdApprenants, error: apprErr } = await supabase.from("apprenants").insert(apprenantsPayload).select("id");
+
+      if (apprErr) {
+        setMultiError(apprErr.message);
+        return;
+      }
+
+      const createdIds = (createdApprenants ?? []).map((x: any) => x.id).filter(Boolean);
+      if (createdIds.length !== apprenantsPayload.length) {
+        setMultiError("Création apprenants incomplète (ids manquants).");
+        return;
+      }
+
+      const tryUpsert = async (rows: any[]) =>
+        supabase.from("apprenant_sessions").upsert(rows, { onConflict: "session_id,apprenant_id" });
+
+      let linkRes = await tryUpsert(
+        createdIds.map((apprenantId: string) => ({
+          apprenant_id: apprenantId,
+          session_id: sessionId,
+        }))
+      );
+
+      if (linkRes.error) {
+        const msg = String(linkRes.error.message || "").toLowerCase();
+        const needOrg =
+          msg.includes("org_id") && (msg.includes("null") || msg.includes("not-null") || msg.includes("missing") || msg.includes("violates"));
+
+        if (needOrg) {
+          linkRes = await tryUpsert(
+            createdIds.map((apprenantId: string) => ({
+              org_id: orgId,
+              apprenant_id: apprenantId,
+              session_id: sessionId,
+            }))
+          );
+        }
+      }
+
+      if (linkRes.error) {
+        setMultiError(linkRes.error.message);
+        return;
+      }
+
+      setOpenMulti(false);
+      setMultiRows([{ ...EMPTY_MULTI_ROW, key: makeKey() }]);
+
+      await loadRows();
+      await loadProductStats();
+    } catch (e: any) {
+      setMultiError(e?.message ?? String(e));
+    } finally {
+      setMultiSaving(false);
+    }
+  };
+
+  const saveEdit = async () => {
+    if (!selectedId) return;
+    if (!required(form.last_name) || !required(form.first_name)) return;
+
+    setError(null);
+    setSaving(true);
+
+    try {
       const orgId = await getOrgId();
       if (!orgId) return;
 
-      const common = {
-        org_id: orgId,
+      const ok = await ensureOrgContext(orgId);
+      if (!ok) {
+        setError("Contexte org non défini");
+        return;
+      }
+
+      const payload = {
+        last_name: form.last_name.trim(),
+        first_name: form.first_name.trim(),
+        birth_date: form.birth_date || null,
+        email: form.email?.trim() || null,
 
         product_id: form.product_id,
         client_id: form.client_id,
@@ -1257,180 +1393,75 @@ export default function ApprenantsPageClient() {
         candidate_manual_validated: !!form.candidate_manual_validated,
       };
 
-      const payloads = valid.map((r) => ({
-        ...common,
-        last_name: r.last_name,
-        first_name: r.first_name,
-        birth_date: r.birth_date,
-        email: r.email,
-      }));
+      const { data, error } = await supabase.from("apprenants").update(payload).eq("id", selectedId).select("id").maybeSingle();
 
-      const { data: insertedRows, error: insErr } = await supabase.rpc("create_apprenants_bulk", { p_items: payloads });
-
-      if (insErr) {
-        setMultiError(errorToMessage(insErr));
+      if (error) {
+        setError(errorToMessage(error));
         return;
       }
 
-      const newIds = (insertedRows ?? []).map((x: any) => x.id as string).filter(Boolean);
-      if (newIds.length === 0) {
-        setMultiError("Aucun apprenant inséré.");
+      if (!data?.id) {
+        setError("UPDATE non appliqué (0 ligne). RLS / org mismatch.");
         return;
       }
+
+      await supabase.from("apprenant_competences").delete().eq("apprenant_id", selectedId);
 
       if (competences.length > 0) {
-        const pivots: any[] = [];
-        for (const apprenantId of newIds) {
-          for (const c of competences) {
-            pivots.push({
-              org_id: orgId,
-              apprenant_id: apprenantId,
-              competence_id: c.id,
-              validated: compChecks[c.id] === true,
-            });
-          }
-        }
-        const { error: pivErr } = await supabase.from("apprenant_competences").insert(pivots);
-        if (pivErr) setError(errorToMessage(pivErr));
+        const rowsToInsert = competences.map((c) => ({
+          org_id: orgId,
+          apprenant_id: selectedId,
+          competence_id: c.id,
+          validated: compChecks[c.id] === true,
+        }));
+        await supabase.from("apprenant_competences").insert(rowsToInsert);
       }
+
+      await supabase.from("apprenant_sessions").delete().eq("apprenant_id", selectedId);
 
       if (selectedSessionIds.length > 0) {
-        const links: any[] = [];
-        for (const apprenantId of newIds) {
-          for (const sessionId of selectedSessionIds) {
-            links.push({ org_id: orgId, apprenant_id: apprenantId, session_id: sessionId });
-          }
-        }
-        const { error: linkErr } = await supabase.from("apprenant_sessions").insert(links);
-        if (linkErr) setError(errorToMessage(linkErr));
+        const links = selectedSessionIds.map((sessionId) => ({
+          org_id: orgId,
+          apprenant_id: selectedId,
+          session_id: sessionId,
+        }));
+        await supabase.from("apprenant_sessions").insert(links);
       }
 
-      setOpenMulti(false);
+      setOpenEdit(false);
       await loadRows();
       await loadProductStats();
-    } catch (e: any) {
-      setMultiError(errorToMessage(e));
     } finally {
-      setMultiSaving(false);
+      setSaving(false);
     }
   };
-const saveEdit = async () => {
-  if (!selectedId) return;
-  if (!required(form.last_name) || !required(form.first_name)) return;
 
-  setError(null);
-  setSaving(true);
+  // ===== MULTI ROW HELPERS =====
+  const updateMultiRow = (idx: number, patch: Partial<MultiRow>) => {
+    setMultiRows((prev) => {
+      const next = [...prev];
+      if (!next[idx]) return prev;
+      next[idx] = { ...next[idx], ...patch };
+      return next;
+    });
+  };
 
-  try {
-    const orgId = await getOrgId();
-    if (!orgId) return;
+  const addMultiRow = () => {
+    setMultiRows((prev) => [...prev, { ...EMPTY_MULTI_ROW, key: makeKey() }]);
+  };
 
-    // ✅ FORCE le contexte org (RLS)
-    const ok = await ensureOrgContext(orgId);
-    if (!ok) {
-      setError("Contexte org non défini");
-      return;
-    }
+  const removeMultiRow = (idx: number) => {
+    setMultiRows((prev) => {
+      if (prev.length <= 1) return prev;
+      const next = [...prev];
+      next.splice(idx, 1);
+      return next;
+    });
+  };
 
-    const payload = {
-      last_name: form.last_name.trim(),
-      first_name: form.first_name.trim(),
-      birth_date: form.birth_date || null,
-      email: form.email?.trim() || null,
-
-      product_id: form.product_id,
-      client_id: form.client_id,
-      structure: form.structure?.trim() || null,
-
-      start_date: form.start_date || null,
-      end_date: form.end_date || null,
-
-      street: form.street?.trim() || null,
-      postal_code: form.postal_code?.trim() || null,
-      city: form.city?.trim() || null,
-
-      forprev: form.forprev,
-      candidate_manual_validated: !!form.candidate_manual_validated,
-    };
-
-    // ✅ UPDATE PAR ID UNIQUEMENT
-    const { data, error } = await supabase
-      .from("apprenants")
-      .update(payload)
-      .eq("id", selectedId)
-      .select("id")
-      .maybeSingle();
-
-    if (error) {
-      setError(errorToMessage(error));
-      return;
-    }
-
-    if (!data?.id) {
-      setError("UPDATE non appliqué (0 ligne). RLS / org mismatch.");
-      return;
-    }
-
-    // 🔁 compétences
-    await supabase.from("apprenant_competences").delete().eq("apprenant_id", selectedId);
-
-    if (competences.length > 0) {
-      const rowsToInsert = competences.map((c) => ({
-        org_id: orgId,
-        apprenant_id: selectedId,
-        competence_id: c.id,
-        validated: compChecks[c.id] === true,
-      }));
-      await supabase.from("apprenant_competences").insert(rowsToInsert);
-    }
-
-    // 🔁 sessions
-    await supabase.from("apprenant_sessions").delete().eq("apprenant_id", selectedId);
-
-    if (selectedSessionIds.length > 0) {
-      const links = selectedSessionIds.map((sessionId) => ({
-        org_id: orgId,
-        apprenant_id: selectedId,
-        session_id: sessionId,
-      }));
-      await supabase.from("apprenant_sessions").insert(links);
-    }
-
-    setOpenEdit(false);
-    await loadRows();
-    await loadProductStats();
-  } finally {
-    setSaving(false);
-  }
-};
-
-// ===== MULTI ROW HELPERS (OBLIGATOIRES) =====
-
-const updateMultiRow = (idx: number, patch: Partial<MultiRow>) => {
-  setMultiRows((prev) => {
-    const next = [...prev];
-    if (!next[idx]) return prev;
-    next[idx] = { ...next[idx], ...patch };
-    return next;
-  });
-};
-
-const addMultiRow = () => {
-  setMultiRows((prev) => [...prev, { ...EMPTY_MULTI_ROW, key: makeKey() }]);
-};
-
-const removeMultiRow = (idx: number) => {
-  setMultiRows((prev) => {
-    if (prev.length <= 1) return prev;
-    const next = [...prev];
-    next.splice(idx, 1);
-    return next;
-  });
-};
-
-const clearMultiRows = () => {
-  setMultiRows([{ ...EMPTY_MULTI_ROW, key: makeKey() }]);
-};
+  const clearMultiRows = () => {
+    setMultiRows([{ ...EMPTY_MULTI_ROW, key: makeKey() }]);
+  };
 
   async function deleteRow(id: string) {
     const ok = window.confirm("Supprimer cet apprenant ?");
@@ -1449,75 +1480,62 @@ const clearMultiRows = () => {
       setDeletingId(null);
     };
 
-    const { error: delErr } = await supabase.rpc("delete_apprenant_force", {
-      p_apprenant_id: id,
-    });
+    const { error: delErr } = await supabase.rpc("delete_apprenant_force", { p_apprenant_id: id });
 
     if (delErr) {
       rollback(errorToMessage(delErr));
       return;
     }
 
-    alert("Supprimé ✅");
-
     await loadRows();
     await loadProductStats();
     setDeletingId(null);
   }
 
- // ✅ ACTION — REMPLACE TA FONCTION toggleForprev PAR ÇA (copie/colle)
+  const toggleForprev = async (id: string, current: boolean | null) => {
+    const next = current === null ? true : current === true ? false : null;
 
-const toggleForprev = async (id: string, current: boolean | null) => {
-  const next = current === null ? true : current === true ? false : null;
+    const prevRows = rows;
+    setRows((p) => p.map((r) => (r.id === id ? { ...r, forprev: next } : r)));
+    setError(null);
 
-  // optimistic UI
-  const prevRows = rows;
-  setRows((p) => p.map((r) => (r.id === id ? { ...r, forprev: next } : r)));
-  setError(null);
+    const rollback = (msg: string) => {
+      setRows(prevRows);
+      setError(msg);
+    };
 
-  const rollback = (msg: string) => {
-    setRows(prevRows);
-    setError(msg);
+    const orgId = await getOrgId();
+    if (!orgId) {
+      rollback("Org active introuvable");
+      return;
+    }
+
+    const ok = await ensureOrgContext(orgId);
+    if (!ok) {
+      rollback("Contexte org non défini (set_current_org)");
+      return;
+    }
+
+    const { data, error } = await supabase
+      .from("apprenants")
+      .update({ forprev: next })
+      .eq("id", id)
+      .select("id, forprev")
+      .maybeSingle();
+
+    if (error) {
+      rollback(errorToMessage(error));
+      return;
+    }
+
+    if (!data?.id) {
+      rollback("FORPREV: update non appliqué (0 ligne). RLS / org context / row org_id mismatch.");
+      return;
+    }
+
+    await loadRows();
+    await loadProductStats();
   };
-
-  const orgId = await getOrgId();
-  if (!orgId) {
-    rollback("Org active introuvable");
-    return;
-  }
-
-  // ✅ assure le contexte org AVANT l'update (important si RLS dépend de current org)
-  const ok = await ensureOrgContext(orgId);
-  if (!ok) {
-    rollback("Contexte org non défini (set_current_org)");
-    return;
-  }
-
-  // ✅ update par ID uniquement : RLS + contexte org font la sécurité
-  const { data, error } = await supabase
-    .from("apprenants")
-    .update({ forprev: next })
-    .eq("id", id)
-    .select("id, forprev")
-    .maybeSingle();
-
-  if (error) {
-    rollback(errorToMessage(error));
-    return;
-  }
-
-  if (!data?.id) {
-    rollback("FORPREV: update non appliqué (0 ligne). RLS / org context / row org_id mismatch.");
-    return;
-  }
-
-  // sync
-  await loadRows();
-  await loadProductStats();
-};
-
- 
-
 
   const onChange = <K extends keyof FormState>(k: K, v: FormState[K]) => {
     setForm((p) => ({ ...p, [k]: v }));
@@ -1543,7 +1561,7 @@ const toggleForprev = async (id: string, current: boolean | null) => {
 
       <div>
         <Label>Client</Label>
-        <Select value={form.client_id ?? ""} onChange={(e) => onChange("client_id", e.target.value || null)}>
+        <Select value={form.client_id ?? ""} onChange={(e) => onChange("client_id", e.target.value as any)}>
           <option value="">—</option>
           {clients.map((c) => (
             <option key={c.id} value={c.id}>
@@ -1606,7 +1624,9 @@ const toggleForprev = async (id: string, current: boolean | null) => {
                       <div className="mt-1 text-xs text-muted-foreground">
                         {toFrDate(s.start_date)} → {toFrDate(s.end_date)}
                       </div>
-                      {s.product?.name ? <div className="mt-1 text-xs font-semibold text-muted-foreground">Produit: {s.product.name}</div> : null}
+                      {s.product?.name ? (
+                        <div className="mt-1 text-xs font-semibold text-muted-foreground">Produit: {s.product.name}</div>
+                      ) : null}
                     </div>
 
                     <input
@@ -1687,7 +1707,11 @@ const toggleForprev = async (id: string, current: boolean | null) => {
           </div>
         ) : (
           <label className="inline-flex items-center gap-2 font-semibold">
-            <input type="checkbox" checked={form.candidate_manual_validated} onChange={(e) => onChange("candidate_manual_validated", e.target.checked)} />
+            <input
+              type="checkbox"
+              checked={form.candidate_manual_validated}
+              onChange={(e) => onChange("candidate_manual_validated", e.target.checked)}
+            />
             Valider manuellement le candidat
           </label>
         )}
@@ -1748,7 +1772,7 @@ const toggleForprev = async (id: string, current: boolean | null) => {
         case "duration_h":
           return typeof r.formation_hours_total === "number" ? r.formation_hours_total : -1;
         case "duration_d":
-          return -1; // ✅ pas de jours
+          return -1;
         case "objectives":
           return (r.formation_objectives ?? "").toLowerCase();
         case "end_date":
@@ -1786,15 +1810,10 @@ const toggleForprev = async (id: string, current: boolean | null) => {
   const productNameById = useMemo(() => new Map<string, string>(produits.map((p) => [p.id, p.name])), [produits]);
   const clientNameById = useMemo(() => new Map<string, string>(clients.map((c) => [c.id, c.name])), [clients]);
 
-  const selectedCompetencesMap = useMemo(() => {
-    const m = new Map<string, boolean>();
-    (selected?.apprenant_competences ?? []).forEach((x) => m.set(x.competence_id, x.validated === true));
-    return m;
-  }, [selected]);
-
-  const selectedSessionIdsView = useMemo(() => {
-    return (selected?.apprenant_sessions ?? []).map((x) => x.session_id).filter(Boolean);
-  }, [selected]);
+  const selectedSessionIdsView = useMemo(
+    () => (selected?.apprenant_sessions ?? []).map((x) => x.session_id).filter(Boolean),
+    [selected]
+  );
 
   const selectedSessionsLabel = useMemo(() => {
     if (!selectedSessionIdsView.length) return "—";
@@ -2005,9 +2024,8 @@ const toggleForprev = async (id: string, current: boolean | null) => {
                       if (col.key === "client") value = r.client_name ?? "—";
                       if (col.key === "session") value = r.session_label ?? "—";
                       if (col.key === "formation") value = (r.formations ?? "").trim() ? r.formations : "—";
-
                       if (col.key === "duration_h") value = typeof r.formation_hours_total === "number" ? r.formation_hours_total : "—";
-                      if (col.key === "duration_d") value = "—"; // ✅ pas de jours dans ton schema
+                      if (col.key === "duration_d") value = "—";
                       if (col.key === "objectives") {
                         const o = (r.formation_objectives ?? "").trim();
                         value = o ? (
@@ -2018,12 +2036,16 @@ const toggleForprev = async (id: string, current: boolean | null) => {
                           "—"
                         );
                       }
-
                       if (col.key === "end_date") value = toFrDate(r.end_date);
                       if (col.key === "validated") value = yesNo(isValidatedRow(r));
-                      if (col.key === "forprev") {
-                        value = <ForprevPill value={r.forprev} onChange={() => void toggleForprev(r.id, r.forprev)} size="sm" />;
-                      }
+                      if (col.key === "forprev")
+                        value = (
+                          <ForprevPill
+                            value={r.forprev}
+                            onChange={() => void toggleForprev(r.id, r.forprev)}
+                            size="sm"
+                          />
+                        );
 
                       return (
                         <td key={col.key} className="whitespace-nowrap px-3 py-2 text-[13px]">
@@ -2084,7 +2106,7 @@ const toggleForprev = async (id: string, current: boolean | null) => {
         )}
       </div>
 
-      {/* ✅ le reste de ton fichier (modals) reste IDENTIQUE à ton code initial */}
+      {/* MODALS */}
       {AnyOpen && (
         <div className="fixed inset-0 z-50 bg-black/40 p-4" onMouseDown={() => closeAll()}>
           <div
@@ -2095,7 +2117,9 @@ const toggleForprev = async (id: string, current: boolean | null) => {
               <div>
                 <div className="text-xl font-semibold">{modalTitle(Mode)}</div>
                 {Mode === "multi" ? (
-                  <div className="mt-1 text-sm text-muted-foreground">Infos communes partagées – Nom / Prénom propres à chaque apprenant</div>
+                  <div className="mt-1 text-sm text-muted-foreground">
+                    Infos communes préremplies depuis la session – Nom / Prénom propres à chaque apprenant
+                  </div>
                 ) : null}
               </div>
 
@@ -2104,260 +2128,144 @@ const toggleForprev = async (id: string, current: boolean | null) => {
               </SoftButton>
             </div>
 
-<div className="flex-1 overflow-y-auto px-6 py-6">
-  {/* ===== CONTENT MODAL ===== */}
+            <div className="flex-1 overflow-y-auto px-6 py-6">
+              {/* VIEW */}
+              {Mode === "view" && selected && (
+                <div className="space-y-6">
+                  <div className="grid grid-cols-2 gap-3">
+                    <div className="rounded-xl border p-4">
+                      <div className="text-xs text-muted-foreground">Nom</div>
+                      <div className="mt-1 font-semibold">{selected.last_name ?? "—"}</div>
+                    </div>
 
-  {/* VIEW */}
-  {Mode === "view" && selected && (
-    <div className="space-y-6">
-      <div className="grid grid-cols-2 gap-3">
-        <div className="rounded-xl border p-4">
-          <div className="text-xs text-muted-foreground">Nom</div>
-          <div className="mt-1 font-semibold">{selected.last_name ?? "—"}</div>
-        </div>
-        <div className="rounded-xl border p-4">
-          <div className="text-xs text-muted-foreground">Prénom</div>
-          <div className="mt-1 font-semibold">{selected.first_name ?? "—"}</div>
-        </div>
+                    <div className="rounded-xl border p-4">
+                      <div className="text-xs text-muted-foreground">Prénom</div>
+                      <div className="mt-1 font-semibold">{selected.first_name ?? "—"}</div>
+                    </div>
 
-        <div className="rounded-xl border p-4">
-          <div className="text-xs text-muted-foreground">Email</div>
-          <div className="mt-1 font-semibold">{selected.email ?? "—"}</div>
-        </div>
-        <div className="rounded-xl border p-4">
-          <div className="text-xs text-muted-foreground">Date de naissance</div>
-          <div className="mt-1 font-semibold">{toFrDate(selected.birth_date)}</div>
-        </div>
+                    <div className="rounded-xl border p-4">
+                      <div className="text-xs text-muted-foreground">Email</div>
+                      <div className="mt-1 font-semibold">{selected.email ?? "—"}</div>
+                    </div>
 
-        <div className="rounded-xl border p-4">
-          <div className="text-xs text-muted-foreground">Client</div>
-          <div className="mt-1 font-semibold">
-            {selected.client_id ? clientNameById.get(selected.client_id) ?? "—" : "—"}
-          </div>
-        </div>
+                    <div className="rounded-xl border p-4">
+                      <div className="text-xs text-muted-foreground">Date de naissance</div>
+                      <div className="mt-1 font-semibold">{toFrDate(selected.birth_date)}</div>
+                    </div>
 
-        <div className="rounded-xl border p-4">
-          <div className="text-xs text-muted-foreground">Formation (produit)</div>
-          <div className="mt-1 font-semibold">
-            {selected.product_id ? productNameById.get(selected.product_id) ?? "—" : "—"}
-          </div>
-        </div>
+                    <div className="col-span-2 rounded-xl border p-4">
+                      <div className="text-xs text-muted-foreground">Structure</div>
+                      <div className="mt-1 font-semibold">{selected.structure ?? "—"}</div>
+                    </div>
 
-        <div className="rounded-xl border p-4">
-          <div className="text-xs text-muted-foreground">Début formation</div>
-          <div className="mt-1 font-semibold">{toFrDate(selected.start_date)}</div>
-        </div>
+                    <div className="col-span-2 rounded-xl border p-4">
+                      <div className="text-xs text-muted-foreground">Sessions</div>
+                      <div className="mt-1 font-semibold">{selectedSessionsLabel}</div>
+                    </div>
 
-        <div className="rounded-xl border p-4">
-          <div className="text-xs text-muted-foreground">Fin formation</div>
-          <div className="mt-1 font-semibold">{toFrDate(selected.end_date)}</div>
-        </div>
-
-        <div className="rounded-xl border p-4">
-          <div className="text-xs text-muted-foreground">FORPREV</div>
-          <div className="mt-1 font-semibold">{yesNo(selected.forprev)}</div>
-        </div>
-
-        <div className="rounded-xl border p-4">
-          <div className="text-xs text-muted-foreground">Validé</div>
-          <div className="mt-1 font-semibold">{yesNo(selected.candidate_manual_validated === true)}</div>
-        </div>
-
-        <div className="col-span-2 rounded-xl border p-4">
-          <div className="text-xs text-muted-foreground">Structure</div>
-          <div className="mt-1 font-semibold">{selected.structure ?? "—"}</div>
-        </div>
-
-        <div className="col-span-2 rounded-xl border p-4">
-          <div className="text-xs text-muted-foreground">Adresse</div>
-          <div className="mt-1 font-semibold">
-            {[
-              selected.street ?? "",
-              selected.postal_code ?? "",
-              selected.city ?? "",
-            ]
-              .map((x) => x.trim())
-              .filter(Boolean)
-              .join(", ") || "—"}
-          </div>
-        </div>
-
-        <div className="col-span-2 rounded-xl border p-4">
-          <div className="text-xs text-muted-foreground">Sessions liées</div>
-          <div className="mt-1 font-semibold">{selectedSessionsLabel}</div>
-        </div>
-
-        <div className="col-span-2 rounded-xl border p-4">
-          <div className="text-xs text-muted-foreground">Formations (depuis sessions)</div>
-          <div className="mt-1 font-semibold">{selectedFormationsLabel}</div>
-        </div>
-      </div>
-
-      <div className="rounded-2xl border p-4">
-        <div className="text-sm font-bold">Compétences</div>
-
-        {(selected.apprenant_competences ?? []).length === 0 ? (
-          <div className="mt-2 text-sm text-muted-foreground">Aucune compétence liée.</div>
-        ) : (
-          <div className="mt-3 grid gap-2">
-            {(selected.apprenant_competences ?? []).map((x) => (
-              <div key={x.competence_id} className="flex items-center justify-between rounded-xl border px-4 py-3">
-                <div className="text-sm font-semibold">{x.competence_id}</div>
-                <div className="text-sm font-bold">{x.validated ? "✅" : "—"}</div>
-              </div>
-            ))}
-          </div>
-        )}
-        <div className="mt-2 text-xs text-muted-foreground">
-          (Si avant tu affichais le label des compétences, c’était via un join. Là on n’a que competence_id.)
-        </div>
-      </div>
-
-      <div className="flex justify-end gap-2">
-        <SoftButton type="button" onClick={() => closeAll()}>
-          Fermer
-        </SoftButton>
-        <PrimaryButton
-          type="button"
-          onClick={() => {
-            closeAll();
-            void openEditModal(selected.id);
-          }}
-        >
-          Modifier
-        </PrimaryButton>
-      </div>
-    </div>
-  )}
-
-  {/* CREATE / EDIT / MULTI */}
-  {(Mode === "create" || Mode === "edit" || Mode === "multi") && (
-    <div className="space-y-6">
-      {/* Identité */}
-      <div className="grid grid-cols-2 gap-3">
-        <div>
-          <Label>Nom *</Label>
-          <Input value={form.last_name} onChange={(e) => onChange("last_name", e.target.value)} />
-        </div>
-        <div>
-          <Label>Prénom *</Label>
-          <Input value={form.first_name} onChange={(e) => onChange("first_name", e.target.value)} />
-        </div>
-
-        <div>
-          <Label>Date de naissance</Label>
-          <Input
-            type="date"
-            value={form.birth_date ?? ""}
-            onChange={(e) => onChange("birth_date", (e.target as HTMLInputElement).value || null)}
-          />
-        </div>
-
-        <div>
-          <Label>Email</Label>
-          <Input value={form.email ?? ""} onChange={(e) => onChange("email", e.target.value || null)} />
-        </div>
-      </div>
-
-      {/* Champs communs (formation, client, sessions, lieu, compétences, validation) */}
-      {CommonFields}
-
-      {/* Footer actions */}
-      {Mode === "create" && (
-        <div className="flex justify-end gap-2">
-          <SoftButton type="button" onClick={() => closeAll()}>
-            Annuler
-          </SoftButton>
-          <PrimaryButton type="button" disabled={saving} onClick={() => void saveCreate()}>
-            {saving ? "Enregistrement…" : "Créer"}
-          </PrimaryButton>
-        </div>
-      )}
-
-      {Mode === "edit" && (
-        <div className="flex justify-end gap-2">
-          <SoftButton type="button" onClick={() => closeAll()}>
-            Annuler
-          </SoftButton>
-          <PrimaryButton type="button" disabled={saving} onClick={() => void saveEdit()}>
-            {saving ? "Enregistrement…" : "Enregistrer"}
-          </PrimaryButton>
-        </div>
-      )}
-
-      {Mode === "multi" && (
-        <div className="space-y-4">
-          <div className="rounded-2xl border p-4">
-            <div className="mb-2 text-sm font-bold">Apprenants (Nom / Prénom par ligne)</div>
-            {multiError ? <div className="mb-2 text-sm text-red-600">{multiError}</div> : null}
-
-            <div className="grid gap-3">
-              {multiRows.map((r, idx) => (
-                <div key={r.key} className="grid grid-cols-12 gap-2 items-end rounded-xl border p-3">
-                  <div className="col-span-4">
-                    <Label>Nom</Label>
-                    <Input value={r.last_name} onChange={(e) => updateMultiRow(idx, { last_name: e.target.value })} />
+                    <div className="col-span-2 rounded-xl border p-4">
+                      <div className="text-xs text-muted-foreground">Formations</div>
+                      <div className="mt-1 font-semibold">{selectedFormationsLabel}</div>
+                    </div>
                   </div>
-                  <div className="col-span-4">
-                    <Label>Prénom</Label>
-                    <Input value={r.first_name} onChange={(e) => updateMultiRow(idx, { first_name: e.target.value })} />
-                  </div>
-                  <div className="col-span-3">
-                    <Label>Naissance</Label>
-                    <Input
-                      type="date"
-                      value={r.birth_date ?? ""}
-                      onChange={(e) => updateMultiRow(idx, { birth_date: (e.target as HTMLInputElement).value || null })}
-                    />
-                  </div>
-                  <div className="col-span-1 flex justify-end">
-                    <button
+
+                  <div className="flex justify-end gap-2">
+                    <SoftButton type="button" onClick={closeAll}>
+                      Fermer
+                    </SoftButton>
+                    <PrimaryButton
                       type="button"
-                      className="flex h-9 w-9 items-center justify-center rounded-lg border bg-white text-base shadow-sm hover:bg-muted/20"
-                      title="Supprimer la ligne"
-                      onClick={() => removeMultiRow(idx)}
-                      disabled={multiRows.length <= 1}
+                      onClick={() => {
+                        closeAll();
+                        void openEditModal(selected.id);
+                      }}
                     >
-                      🗑️
-                    </button>
-                  </div>
-
-                  <div className="col-span-12">
-                    <Label>Email</Label>
-                    <Input value={r.email ?? ""} onChange={(e) => updateMultiRow(idx, { email: e.target.value || null })} />
+                      Modifier
+                    </PrimaryButton>
                   </div>
                 </div>
-              ))}
+              )}
+
+              {/* CREATE / EDIT / MULTI */}
+              {(Mode === "create" || Mode === "edit" || Mode === "multi") && (
+                <div className="space-y-6">
+                  {CommonFields}
+
+                  {/* MULTI */}
+                  {Mode === "multi" && (
+                    <div className="rounded-2xl border p-4">
+                      <div className="mb-2 text-sm font-bold">Apprenants (Nom / Prénom par ligne)</div>
+
+                      {multiError && <div className="mb-2 text-sm text-red-600">{multiError}</div>}
+
+                      <div className="grid gap-3">
+                        {multiRows.map((r, idx) => (
+                          <div key={r.key} className="grid grid-cols-12 items-end gap-2 rounded-xl border p-3">
+                            <div className="col-span-5">
+                              <Label>Nom</Label>
+                              <Input value={r.last_name} onChange={(e) => updateMultiRow(idx, { last_name: e.target.value })} />
+                            </div>
+
+                            <div className="col-span-5">
+                              <Label>Prénom</Label>
+                              <Input value={r.first_name} onChange={(e) => updateMultiRow(idx, { first_name: e.target.value })} />
+                            </div>
+
+                            <div className="col-span-2 flex justify-end gap-2">
+                              <SoftButton type="button" onClick={addMultiRow}>
+                                +
+                              </SoftButton>
+                              <SoftButton type="button" onClick={() => removeMultiRow(idx)} disabled={multiRows.length <= 1}>
+                                −
+                              </SoftButton>
+                            </div>
+                          </div>
+                        ))}
+                      </div>
+
+                      <div className="mt-4 flex justify-between">
+                        <SoftButton type="button" onClick={clearMultiRows}>
+                          Vider
+                        </SoftButton>
+
+                        <PrimaryButton type="button" disabled={multiSaving} onClick={() => void saveMultiCreate()}>
+                          {multiSaving ? "Création…" : "Créer + Lier à la session"}
+                        </PrimaryButton>
+                      </div>
+                    </div>
+                  )}
+
+                  {/* CREATE */}
+                  {Mode === "create" && (
+                    <div className="flex justify-end gap-2">
+                      <SoftButton type="button" onClick={closeAll}>
+                        Annuler
+                      </SoftButton>
+                      <PrimaryButton type="button" disabled={saving} onClick={() => void saveCreate()}>
+                        {saving ? "Enregistrement…" : "Créer"}
+                      </PrimaryButton>
+                    </div>
+                  )}
+
+                  {/* EDIT */}
+                  {Mode === "edit" && (
+                    <div className="flex justify-end gap-2">
+                      <SoftButton type="button" onClick={closeAll}>
+                        Annuler
+                      </SoftButton>
+                      <PrimaryButton type="button" disabled={saving} onClick={() => void saveEdit()}>
+                        {saving ? "Enregistrement…" : "Enregistrer"}
+                      </PrimaryButton>
+                    </div>
+                  )}
+                </div>
+              )}
+
+              {/* FALLBACK */}
+              {Mode === "view" && !selected && (
+                <div className="rounded-2xl border p-4 text-sm text-muted-foreground">Aucune donnée à afficher.</div>
+              )}
             </div>
-
-            <div className="mt-3 flex gap-2">
-              <SoftButton type="button" onClick={() => addMultiRow()}>
-                + Ajouter une ligne
-              </SoftButton>
-              <SoftButton type="button" onClick={() => clearMultiRows()}>
-                Réinitialiser
-              </SoftButton>
-            </div>
-          </div>
-
-          <div className="flex justify-end gap-2">
-            <SoftButton type="button" onClick={() => closeAll()}>
-              Annuler
-            </SoftButton>
-            <PrimaryButton type="button" disabled={multiSaving} onClick={() => void saveMultiCreate()}>
-              {multiSaving ? "Enregistrement…" : "Créer"}
-            </PrimaryButton>
-          </div>
-        </div>
-      )}
-    </div>
-  )}
-
-  {/* fallback */}
-  {Mode === "view" && !selected && (
-    <div className="rounded-2xl border p-4 text-sm text-muted-foreground">Aucune donnée à afficher.</div>
-  )}
-</div>
           </div>
         </div>
       )}

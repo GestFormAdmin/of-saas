@@ -1,4 +1,3 @@
-// ===== BLOCK 1/4 =====
 "use client";
 
 import React, { useEffect, useMemo, useRef, useState } from "react";
@@ -263,7 +262,16 @@ const popoverStyle: React.CSSProperties = {
   zIndex: 30,
 };
 
-const overlayStyle: React.CSSProperties = { position: "fixed", inset: 0, background: "rgba(2, 6, 23, 0.30)", display: "flex", alignItems: "center", justifyContent: "center", padding: 12, zIndex: 50 };
+const overlayStyle: React.CSSProperties = {
+  position: "fixed",
+  inset: 0,
+  background: "rgba(2, 6, 23, 0.30)",
+  display: "flex",
+  alignItems: "center",
+  justifyContent: "center",
+  padding: 12,
+  zIndex: 50,
+};
 
 const modalStyle: React.CSSProperties = {
   width: "min(820px, 96vw)",
@@ -275,7 +283,14 @@ const modalStyle: React.CSSProperties = {
   overflow: "hidden",
 };
 
-const modalHeaderStyle: React.CSSProperties = { padding: 14, display: "flex", alignItems: "center", justifyContent: "space-between", gap: 12, borderBottom: "1px solid rgba(15, 23, 42, 0.08)" };
+const modalHeaderStyle: React.CSSProperties = {
+  padding: 14,
+  display: "flex",
+  alignItems: "center",
+  justifyContent: "space-between",
+  gap: 12,
+  borderBottom: "1px solid rgba(15, 23, 42, 0.08)",
+};
 const modalBodyStyle: React.CSSProperties = { padding: 14, overflow: "auto", maxHeight: "calc(min(78vh, 820px) - 120px)" };
 const modalFooterStyle: React.CSSProperties = { padding: 14, display: "flex", justifyContent: "flex-end", gap: 10, borderTop: "1px solid rgba(15, 23, 42, 0.08)" };
 
@@ -350,8 +365,7 @@ function sortSessions(rows: SessionRow[], sort: SortState, learnerCountBySession
     const b: any = rb as any;
     return compareNullable(a[sort.key], b[sort.key], dir);
   });
-}
-// ===== BLOCK 2/4 =====
+}// ===== BLOCK 2/4 =====
 /* ================== PAGE ================== */
 export default function SessionsPage() {
   usePermissions() as any;
@@ -478,6 +492,15 @@ export default function SessionsPage() {
   const [openEdit, setOpenEdit] = useState(false);
   const [openView, setOpenView] = useState(false);
   const [saving, setSaving] = useState(false);
+
+  const [lastCreatedSession, setLastCreatedSession] = useState<{
+    id: string;
+    product_id: string | null;
+    client_id: string | null;
+    start_date: string | null;
+    end_date: string | null;
+    location_structure: string | null;
+  } | null>(null);
 
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const selected = useMemo(() => rows.find((r) => r.id === selectedId) ?? null, [rows, selectedId]);
@@ -644,38 +667,35 @@ export default function SessionsPage() {
   }
 
   // ✅ FETCHSESSIONS — VERSION PROPRE / DÉFINITIVE
-// COPIE / COLLE TEL QUELLE (remplace ta fonction existante)
+  async function fetchSessions() {
+    setPageError(null);
 
-async function fetchSessions() {
-  setPageError(null);
+    const { data, error } = await supabase.rpc("get_my_visible_sessions");
 
-  const { data, error } = await supabase.rpc("get_my_visible_sessions");
+    if (error) {
+      setPageError(error.message);
+      setRows([]);
+      setLearnerCountBySession({});
+      return;
+    }
 
-  if (error) {
-    setPageError(error.message);
-    setRows([]);
-    setLearnerCountBySession({});
-    return;
+    const raw = (data ?? []) as SessionRow[];
+
+    const clientMap = new Map(clients.map((c) => [c.id, c.name]));
+    const prodMap = new Map(products.map((p) => [p.id, p.name]));
+
+    const enriched = raw.map((r) => ({
+      ...r,
+      session_status: (r as any).session_status ?? "à planifier",
+      client_name: (r as any).client_name ?? (r.client_id ? clientMap.get(r.client_id) ?? "—" : "—"),
+      product_name: (r as any).product_name ?? (r.product_id ? prodMap.get(r.product_id) ?? "—" : "—"),
+    }));
+
+    setRows(enriched);
+
+    // ✅ recalcul apprenants
+    await fetchLearnerCountsForSessions(enriched.map((s) => s.id));
   }
-
-  const raw = (data ?? []) as SessionRow[];
-
-  const clientMap = new Map(clients.map((c) => [c.id, c.name]));
-  const prodMap = new Map(products.map((p) => [p.id, p.name]));
-
-  const enriched = raw.map((r) => ({
-    ...r,
-    session_status: (r as any).session_status ?? "à planifier",
-    client_name: (r as any).client_name ?? (r.client_id ? clientMap.get(r.client_id) ?? "—" : "—"),
-    product_name: (r as any).product_name ?? (r.product_id ? prodMap.get(r.product_id) ?? "—" : "—"),
-  }));
-
-  setRows(enriched);
-
-  // ✅ recalcul apprenants
-  await fetchLearnerCountsForSessions(enriched.map((s) => s.id));
-}
-
   const kpi = useMemo(() => {
     const nowYear = new Date().getFullYear();
     const prevYear = nowYear - 1;
@@ -736,15 +756,18 @@ async function fetchSessions() {
     resetForm();
     setSelectedId(null);
     setOpenCreate(true);
+    setLastCreatedSession(null);
   }
   function closeCreateModal() {
     setOpenCreate(false);
     setFormError(null);
+    setLastCreatedSession(null);
   }
 
   async function openViewModal(id: string) {
     setSelectedId(id);
     setOpenView(true);
+    setLastCreatedSession(null);
     await loadLearnersForSession(id);
   }
 
@@ -757,6 +780,8 @@ async function fetchSessions() {
   }
 
   function openEditModal(id: string) {
+    setLastCreatedSession(null);
+
     const r = rows.find((x) => x.id === id);
     if (!r) return;
 
@@ -851,24 +876,17 @@ async function fetchSessions() {
 
       if (error || !created?.id) return setFormError(error?.message ?? "Création impossible.");
 
-      const go = window.confirm("Session créée ✅\n\nVoulez-vous ajouter plusieurs apprenants maintenant ?");
-      if (go) {
-        const params = new URLSearchParams({
-          multi: "1",
-          session_id: created.id,
-          product_id: (created as any).product_id ?? "",
-          client_id: (created as any).client_id ?? "",
-          start_date: (created as any).start_date ?? "",
-          end_date: (created as any).end_date ?? "",
-          structure: (created as any).location_structure ?? "",
-        });
+      setLastCreatedSession({
+        id: created.id,
+        product_id: (created as any).product_id ?? null,
+        client_id: (created as any).client_id ?? null,
+        start_date: (created as any).start_date ?? null,
+        end_date: (created as any).end_date ?? null,
+        location_structure: (created as any).location_structure ?? null,
+      });
 
-        window.location.href = `/apprenants?${params.toString()}`;
-        return;
-      }
-
-      closeCreateModal();
       await fetchSessions();
+      // ✅ on laisse le modal ouvert pour cliquer "Ajouter apprenants"
     } finally {
       setSaving(false);
     }
@@ -912,32 +930,54 @@ async function fetchSessions() {
       setSaving(false);
     }
   }
- // ✅ VERSION FINALE QUI NE PEUT PAS RÉAPPARAÎTRE
-async function deleteRow(id: string) {
-  if (!canDelete) return;
 
-  const ok = window.confirm("Supprimer définitivement cette session ?");
-  if (!ok) return;
+  function goAddLearnersFromSession(s: {
+    id: string;
+    product_id: string | null;
+    client_id: string | null;
+    start_date: string | null;
+    end_date: string | null;
+    location_structure: string | null;
+  }) {
+    const params = new URLSearchParams({
+      multi: "1",
+      session_id: s.id,
+      product_id: s.product_id ?? "",
+      client_id: s.client_id ?? "",
+      start_date: s.start_date ?? "",
+      end_date: s.end_date ?? "",
+      structure: s.location_structure ?? "",
+    });
 
-  setPageError(null);
-
-  const { data, error } = await supabase.rpc("delete_session_hard", {
-    p_session_id: id,
-  });
-
-  if (error) {
-    setPageError(error.message);
-    return;
+    // IMPORTANT: stopPropagation sur onClick (pas seulement onMouseDown)
+    window.location.href = `/apprenants?${params.toString()}`;
   }
 
-  // UI
-  setRows((prev) => prev.filter((r) => r.id !== id));
-  setLearnerCountBySession((prev) => {
-    const next = { ...prev };
-    delete next[id];
-    return next;
-  });
-}
+  async function deleteRow(id: string) {
+    if (!canDelete) return;
+
+    const ok = window.confirm("Supprimer définitivement cette session ?");
+    if (!ok) return;
+
+    setPageError(null);
+
+    const { error } = await supabase.rpc("delete_session_hard", {
+      p_session_id: id,
+    });
+
+    if (error) {
+      setPageError(error.message);
+      return;
+    }
+
+    // UI
+    setRows((prev) => prev.filter((r) => r.id !== id));
+    setLearnerCountBySession((prev) => {
+      const next = { ...prev };
+      delete next[id];
+      return next;
+    });
+  }
 
   async function cycleStatusForSession(id: string) {
     if (!canEdit) return;
@@ -952,7 +992,12 @@ async function deleteRow(id: string) {
     setRows((prev) => prev.map((r) => (r.id === id ? ({ ...r, session_status: next } as any) : r)));
     setPageError(null);
 
-    const { data: updated, error } = await supabase.from(SESSIONS_TABLE).update({ session_status: next }).eq("id", id).select("id,session_status").maybeSingle();
+    const { data: updated, error } = await supabase
+      .from(SESSIONS_TABLE)
+      .update({ session_status: next })
+      .eq("id", id)
+      .select("id,session_status")
+      .maybeSingle();
 
     if (error) {
       setPageError(errorToMessage(error));
@@ -1192,7 +1237,6 @@ async function deleteRow(id: string) {
       </div>
     );
   }
-
   return (
     <div id="sessions-new-ui-root" style={containerStyle}>
       <style jsx>{`
@@ -1359,7 +1403,7 @@ async function deleteRow(id: string) {
                 <div style={{ opacity: 0.65, fontWeight: 800, marginTop: 2 }}>{selected.name}</div>
               </div>
 
-              <button style={softBtnStyle} onClick={closeViewModal} type="button">
+              <button style={softBtnStyle} onClick={(e) => (e.stopPropagation(), closeViewModal())} type="button">
                 Fermer
               </button>
             </div>
@@ -1428,7 +1472,8 @@ async function deleteRow(id: string) {
                     <button
                       style={softBtnStyle}
                       type="button"
-                      onClick={() => {
+                      onClick={(e) => {
+                        e.stopPropagation();
                         const params = new URLSearchParams({
                           multi: "1",
                           session_id: selected.id,
@@ -1482,7 +1527,8 @@ async function deleteRow(id: string) {
                 <button
                   style={softBtnStyle}
                   type="button"
-                  onClick={() => {
+                  onClick={(e) => {
+                    e.stopPropagation();
                     closeViewModal();
                     openEditModal(selected.id);
                   }}
@@ -1491,21 +1537,21 @@ async function deleteRow(id: string) {
                 </button>
               )}
 
-              <button style={primaryBtnStyle} onClick={closeViewModal} type="button">
+              <button style={primaryBtnStyle} onClick={(e) => (e.stopPropagation(), closeViewModal())} type="button">
                 OK
               </button>
             </div>
           </div>
         </div>
       )}
-      // ===== BLOCK 4/4 =====
+
       {/* CREATE */}
       {openCreate && (
         <div style={overlayStyle} onMouseDown={closeCreateModal}>
           <div style={modalStyle} onMouseDown={(e) => e.stopPropagation()}>
             <div style={modalHeaderStyle}>
               <div style={{ fontSize: 18, fontWeight: 950 }}>Créer une session</div>
-              <button style={softBtnStyle} onClick={closeCreateModal} type="button">
+              <button style={softBtnStyle} onClick={(e) => (e.stopPropagation(), closeCreateModal())} type="button">
                 Fermer
               </button>
             </div>
@@ -1517,10 +1563,25 @@ async function deleteRow(id: string) {
             {formError && <div style={inlineErrorStyle}>{formError}</div>}
 
             <div style={modalFooterStyle}>
-              <button style={softBtnStyle} onClick={closeCreateModal} disabled={saving} type="button">
+              <button style={softBtnStyle} onClick={(e) => (e.stopPropagation(), closeCreateModal())} disabled={saving} type="button">
                 Annuler
               </button>
-              <button style={{ ...primaryBtnStyle, opacity: saving ? 0.75 : 1 }} onClick={() => void saveCreate()} disabled={saving} type="button">
+
+            <button
+  style={{ ...softBtnStyle, opacity: lastCreatedSession?.id ? 1 : 0.5, cursor: lastCreatedSession?.id ? "pointer" : "not-allowed" }}
+  disabled={saving || !lastCreatedSession?.id}
+  type="button"
+  onClick={(e) => {
+    e.stopPropagation();
+    if (!lastCreatedSession?.id) return;
+    goAddLearnersFromSession(lastCreatedSession);
+  }}
+  title={!lastCreatedSession?.id ? "Crée d'abord la session" : ""}
+>
+  Ajouter apprenants
+</button>
+
+              <button style={{ ...primaryBtnStyle, opacity: saving ? 0.75 : 1 }} onClick={(e) => (e.stopPropagation(), void saveCreate())} disabled={saving} type="button">
                 {saving ? "Création…" : "Créer"}
               </button>
             </div>
@@ -1534,7 +1595,7 @@ async function deleteRow(id: string) {
           <div style={modalStyle} onMouseDown={(e) => e.stopPropagation()}>
             <div style={modalHeaderStyle}>
               <div style={{ fontSize: 18, fontWeight: 950 }}>Modifier session</div>
-              <button style={softBtnStyle} onClick={closeEditModal} type="button">
+              <button style={softBtnStyle} onClick={(e) => (e.stopPropagation(), closeEditModal())} type="button">
                 Fermer
               </button>
             </div>
@@ -1546,10 +1607,31 @@ async function deleteRow(id: string) {
             {formError && <div style={inlineErrorStyle}>{formError}</div>}
 
             <div style={modalFooterStyle}>
-              <button style={softBtnStyle} onClick={closeEditModal} disabled={saving} type="button">
+              <button style={softBtnStyle} onClick={(e) => (e.stopPropagation(), closeEditModal())} disabled={saving} type="button">
                 Annuler
               </button>
-              <button style={{ ...primaryBtnStyle, opacity: saving ? 0.75 : 1 }} onClick={() => void saveEdit()} disabled={saving} type="button">
+
+              <button
+  style={{ ...softBtnStyle, opacity: selected?.id ? 1 : 0.5, cursor: selected?.id ? "pointer" : "not-allowed" }}
+  disabled={saving || !selected?.id}
+  type="button"
+  onClick={(e) => {
+    e.stopPropagation();
+    if (!selected?.id) return;
+    goAddLearnersFromSession({
+      id: selected.id,
+      product_id: selected.product_id ?? null,
+      client_id: selected.client_id ?? null,
+      start_date: selected.start_date ?? null,
+      end_date: selected.end_date ?? null,
+      location_structure: selected.location_structure ?? null,
+    });
+  }}
+>
+  Ajouter apprenants
+</button>
+
+              <button style={{ ...primaryBtnStyle, opacity: saving ? 0.75 : 1 }} onClick={(e) => (e.stopPropagation(), void saveEdit())} disabled={saving} type="button">
                 {saving ? "Enregistrement…" : "Enregistrer"}
               </button>
             </div>
@@ -1558,7 +1640,7 @@ async function deleteRow(id: string) {
       )}
     </div>
   );
-}
+} // ✅ FIN SessionsPage (C'ETAIT MANQUANT ET CA CASSAIT LE PARSER)
 
 /* ================== FORM ================== */
 function SessionForm(props: {
