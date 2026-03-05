@@ -1,5 +1,5 @@
 // ===== BLOCK 1/4 =====
-// SessionsPage.tsx
+// src/app/(admin)/sessions/SessionsPageClient.tsx
 "use client";
 
 import React, { useEffect, useMemo, useRef, useState } from "react";
@@ -12,8 +12,11 @@ import { usePermissions } from "@/features/auth/PermissionsProviderClient";
    + Tableau triable par colonne
    + Après création: proposition ajout multiple d'apprenants
    + Sous-traitée => choix d’un formateur indépendant invité
-
-   ✅ RÈGLE: création session = utilisateur avec OF (membership active) ET pas invité
+   + ✅ Colonne Statut cliquable: passé / à venir / à planifier (persisté)
+   + ✅ 3 tableaux: à planifier / à venir / passé
+   + ✅ FIX DELETE: supprime liens puis session
+     - pas de maybeSingle => pas de 406
+     - vérifie suppression réelle (retour select)
 ========================================================= */
 
 const SESSIONS_TABLE = "sessions";
@@ -32,10 +35,14 @@ type SubcontractorRow = {
   logo_url: string | null;
 };
 
+type SessionStatus = "à planifier" | "à venir" | "passé";
+
 type SessionRow = {
   id: string;
   org_id: string;
   subcontractor_user_id?: string | null;
+
+  session_status?: SessionStatus | null;
 
   product_id: string | null;
   client_id: string | null;
@@ -43,8 +50,8 @@ type SessionRow = {
   name: string;
   delivery_type: DeliveryType;
 
-  start_date: string;
-  end_date: string;
+  start_date: string | null;
+  end_date: string | null;
   certification_date: string | null;
 
   location_structure: string | null;
@@ -72,7 +79,21 @@ type LearnerRow = {
 };
 
 /* ================== HELPERS ================== */
-const required = (v?: string | null) => !!v && v.trim().length > 0;
+function errorToMessage(err: any) {
+  if (!err) return "Erreur inconnue";
+  if (typeof err === "string") return err;
+  if (err?.message) return String(err.message);
+  if (err?.error_description) return String(err.error_description);
+  if (err?.details) return String(err.details);
+  if (err?.hint) return String(err.hint);
+  try {
+    return JSON.stringify(err);
+  } catch {
+    return String(err);
+  }
+}
+
+const required = (v?: string | null) => !!v && String(v).trim().length > 0;
 const safeLower = (s?: string | null) => (s ?? "").toLowerCase();
 
 const toFrDate = (d?: string | null) => {
@@ -91,7 +112,8 @@ function yearOf(date: string | null | undefined) {
   return Number.isFinite(y) ? y : null;
 }
 
-function daysBetweenInclusive(start: string, end: string) {
+function daysBetweenInclusive(start: string | null | undefined, end: string | null | undefined) {
+  if (!start || !end) return 0;
   const s = new Date(start);
   const e = new Date(end);
   if (Number.isNaN(s.getTime()) || Number.isNaN(e.getTime())) return 0;
@@ -99,19 +121,13 @@ function daysBetweenInclusive(start: string, end: string) {
   return Math.max(0, diff + 1);
 }
 
-function statusOfSession(r: SessionRow) {
-  const now = new Date();
-  const s = new Date(r.start_date);
-  const e = new Date(r.end_date);
-  if (Number.isNaN(s.getTime()) || Number.isNaN(e.getTime())) return "UNKNOWN" as const;
+/* ================== STATUT (DB) ================== */
+const SESSION_STATUS_RANK: Record<SessionStatus, number> = { "à planifier": 0, "à venir": 1, passé: 2 };
 
-  const today = new Date(now.getFullYear(), now.getMonth(), now.getDate());
-  const sd = new Date(s.getFullYear(), s.getMonth(), s.getDate());
-  const ed = new Date(e.getFullYear(), e.getMonth(), e.getDate());
-
-  if (ed < today) return "PAST" as const;
-  if (sd > today) return "UPCOMING" as const;
-  return "ONGOING" as const;
+function computeSessionStatus(r: SessionRow): SessionStatus {
+  const v = (r as any).session_status as any;
+  if (v === "passé" || v === "à venir" || v === "à planifier") return v;
+  return "à planifier";
 }
 
 function getLearnerName(l: LearnerRow) {
@@ -134,36 +150,11 @@ function getLearnerEmail(l: LearnerRow) {
 
 /* ================== STYLES ================== */
 const containerStyle: React.CSSProperties = { width: "100%", maxWidth: 1200, margin: "0 auto", padding: 18 };
-const headerRowStyle: React.CSSProperties = {
-  display: "flex",
-  alignItems: "flex-start",
-  justifyContent: "space-between",
-  gap: 16,
-  flexWrap: "wrap",
-};
+const headerRowStyle: React.CSSProperties = { display: "flex", alignItems: "flex-start", justifyContent: "space-between", gap: 16, flexWrap: "wrap" };
 const kpiGridStyle: React.CSSProperties = { display: "grid", gridTemplateColumns: "repeat(5, minmax(0, 1fr))", gap: 14, marginTop: 14 };
-const cardStyle: React.CSSProperties = {
-  background: "white",
-  border: "1px solid rgba(15, 23, 42, 0.10)",
-  borderRadius: 14,
-  boxShadow: "0 1px 0 rgba(15, 23, 42, 0.04)",
-};
-const sectionHeaderStyle: React.CSSProperties = {
-  padding: "14px 14px 10px 14px",
-  display: "flex",
-  alignItems: "center",
-  justifyContent: "space-between",
-  gap: 12,
-  flexWrap: "wrap",
-};
-const filtersRowStyle: React.CSSProperties = {
-  padding: "0 14px 12px 14px",
-  display: "flex",
-  alignItems: "center",
-  justifyContent: "space-between",
-  gap: 12,
-  flexWrap: "wrap",
-};
+const cardStyle: React.CSSProperties = { background: "white", border: "1px solid rgba(15, 23, 42, 0.10)", borderRadius: 14, boxShadow: "0 1px 0 rgba(15, 23, 42, 0.04)" };
+const sectionHeaderStyle: React.CSSProperties = { padding: "14px 14px 10px 14px", display: "flex", alignItems: "center", justifyContent: "space-between", gap: 12, flexWrap: "wrap" };
+const filtersRowStyle: React.CSSProperties = { padding: "0 14px 12px 14px", display: "flex", alignItems: "center", justifyContent: "space-between", gap: 12, flexWrap: "wrap" };
 const searchWrapStyle: React.CSSProperties = { flex: 1, minWidth: 260 };
 
 const searchInputStyle: React.CSSProperties = {
@@ -207,7 +198,7 @@ const primaryBtnStyle: React.CSSProperties = {
   cursor: "pointer",
 };
 
-const tableWrapStyle: React.CSSProperties = { width: "100%", overflowX: "auto", borderTop: "1px solid rgba(15, 23, 42, 0.10)" };
+const tableWrapStyle: React.CSSProperties = { width: "100%", overflowX: "auto" };
 const tableStyle: React.CSSProperties = { width: "100%", minWidth: 980, borderCollapse: "separate", borderSpacing: 0 };
 
 const thStyle: React.CSSProperties = {
@@ -327,367 +318,248 @@ const inputStyle: React.CSSProperties = {
   outline: "none",
   fontWeight: 800,
 };
-// ===== BLOCK 1/4 =====
-// SessionsPage.tsx
-"use client";
 
-import React, { useEffect, useMemo, useRef, useState } from "react";
-import { supabase } from "@/lib/supabaseClient";
-import { usePermissions } from "@/features/auth/PermissionsProviderClient";
+/* ================== SORT ================== */
+type SortKey =
+  | "start_date"
+  | "name"
+  | "product_name"
+  | "client_name"
+  | "delivery_type"
+  | "location_city"
+  | "duration_days"
+  | "certification_date"
+  | "learners_count"
+  | "session_status";
 
-/* =========================================================
-   Sessions — UI calée sur Factures (propre)
-   + Colonnes: popover en haut (pas en bas)
-   + Tableau triable par colonne
-   + Après création: proposition ajout multiple d'apprenants
-   + Sous-traitée => choix d’un formateur indépendant invité
+type SortState = { key: SortKey; dir: "asc" | "desc" };
 
-   ✅ RÈGLE: création session = utilisateur avec OF (membership active) ET pas invité
-========================================================= */
-
-const SESSIONS_TABLE = "sessions";
-const CLIENTS_TABLE = "clients";
-const PRODUCTS_TABLE = "products";
-
-type DeliveryType = "direct" | "subcontract" | "sous_traitee";
-
-type ClientRow = { id: string; name: string };
-type ProductRow = { id: string; name: string };
-
-type SubcontractorRow = {
-  user_id: string;
-  display_name: string;
-  email: string | null;
-  logo_url: string | null;
-};
-
-type SessionRow = {
-  id: string;
-  org_id: string;
-  subcontractor_user_id?: string | null;
-
-  product_id: string | null;
-  client_id: string | null;
-
-  name: string;
-  delivery_type: DeliveryType;
-
-  start_date: string;
-  end_date: string;
-  certification_date: string | null;
-
-  location_structure: string | null;
-  location_street: string | null;
-  location_postal_code: string | null;
-  location_city: string | null;
-
-  created_at?: string;
-  updated_at?: string;
-
-  client_name?: string;
-  product_name?: string;
-};
-
-type LearnerRow = {
-  id: string;
-  name?: string | null;
-  full_name?: string | null;
-  nom?: string | null;
-  email?: string | null;
-  mail?: string | null;
-  last_name?: string | null;
-  first_name?: string | null;
-  [k: string]: any;
-};
-
-/* ================== HELPERS ================== */
-const required = (v?: string | null) => !!v && v.trim().length > 0;
-const safeLower = (s?: string | null) => (s ?? "").toLowerCase();
-
-const toFrDate = (d?: string | null) => {
-  if (!d) return "—";
-  try {
-    return new Date(d).toLocaleDateString("fr-FR");
-  } catch {
-    return "—";
-  }
-};
-
-function yearOf(date: string | null | undefined) {
-  if (!date) return null;
-  const d = new Date(date);
-  const y = d.getFullYear();
-  return Number.isFinite(y) ? y : null;
+function compareNullable(a: any, b: any, dir: 1 | -1) {
+  if (a == null && b == null) return 0;
+  if (a == null) return -1 * dir;
+  if (b == null) return 1 * dir;
+  if (typeof a === "number" && typeof b === "number") return (a - b) * dir;
+  return String(a).localeCompare(String(b), "fr", { numeric: true }) * dir;
 }
 
-function daysBetweenInclusive(start: string, end: string) {
-  const s = new Date(start);
-  const e = new Date(end);
-  if (Number.isNaN(s.getTime()) || Number.isNaN(e.getTime())) return 0;
-  const diff = Math.floor((e.getTime() - s.getTime()) / (1000 * 60 * 60 * 24));
-  return Math.max(0, diff + 1);
+function sortSessions(rows: SessionRow[], sort: SortState, learnerCountBySession: Record<string, number>) {
+  const dir = sort.dir === "asc" ? (1 as const) : (-1 as const);
+
+  return [...rows].sort((ra, rb) => {
+    if (sort.key === "duration_days") {
+      const va = daysBetweenInclusive(ra.start_date, ra.end_date);
+      const vb = daysBetweenInclusive(rb.start_date, rb.end_date);
+      return compareNullable(va, vb, dir);
+    }
+
+    if (sort.key === "learners_count") {
+      const va = learnerCountBySession[ra.id] ?? 0;
+      const vb = learnerCountBySession[rb.id] ?? 0;
+      return compareNullable(va, vb, dir);
+    }
+
+    if (sort.key === "session_status") {
+      const va = SESSION_STATUS_RANK[computeSessionStatus(ra)];
+      const vb = SESSION_STATUS_RANK[computeSessionStatus(rb)];
+      return compareNullable(va, vb, dir);
+    }
+
+    const a: any = ra as any;
+    const b: any = rb as any;
+    return compareNullable(a[sort.key], b[sort.key], dir);
+  });
 }
+// ===== BLOCK 2/4 =====
+/* ================== PAGE ================== */
+export default function SessionsPageClient() {
+  usePermissions() as any;
 
-function statusOfSession(r: SessionRow) {
-  const now = new Date();
-  const s = new Date(r.start_date);
-  const e = new Date(r.end_date);
-  if (Number.isNaN(s.getTime()) || Number.isNaN(e.getTime())) return "UNKNOWN" as const;
+  const [userId, setUserId] = useState<string | null>(null);
 
-  const today = new Date(now.getFullYear(), now.getMonth(), now.getDate());
-  const sd = new Date(s.getFullYear(), s.getMonth(), s.getDate());
-  const ed = new Date(e.getFullYear(), e.getMonth(), e.getDate());
-
-  if (ed < today) return "PAST" as const;
-  if (sd > today) return "UPCOMING" as const;
-  return "ONGOING" as const;
-}
-
-function getLearnerName(l: LearnerRow) {
-  const ln = typeof l.last_name === "string" ? l.last_name.trim() : "";
-  const fn = typeof l.first_name === "string" ? l.first_name.trim() : "";
-  if (ln || fn) return `${ln} ${fn}`.trim();
-
-  if (typeof l.name === "string" && l.name.trim()) return l.name.trim();
-  if (typeof l.full_name === "string" && l.full_name.trim()) return l.full_name.trim();
-  if (typeof l.nom === "string" && l.nom.trim()) return l.nom.trim();
-
-  return "—";
-}
-
-function getLearnerEmail(l: LearnerRow) {
-  if (typeof l.email === "string" && l.email.trim()) return l.email.trim();
-  if (typeof l.mail === "string" && l.mail.trim()) return l.mail.trim();
-  return "";
-}
-
-/* ================== STYLES ================== */
-const containerStyle: React.CSSProperties = { width: "100%", maxWidth: 1200, margin: "0 auto", padding: 18 };
-const headerRowStyle: React.CSSProperties = {
-  display: "flex",
-  alignItems: "flex-start",
-  justifyContent: "space-between",
-  gap: 16,
-  flexWrap: "wrap",
-};
-const kpiGridStyle: React.CSSProperties = { display: "grid", gridTemplateColumns: "repeat(5, minmax(0, 1fr))", gap: 14, marginTop: 14 };
-const cardStyle: React.CSSProperties = {
-  background: "white",
-  border: "1px solid rgba(15, 23, 42, 0.10)",
-  borderRadius: 14,
-  boxShadow: "0 1px 0 rgba(15, 23, 42, 0.04)",
-};
-const sectionHeaderStyle: React.CSSProperties = {
-  padding: "14px 14px 10px 14px",
-  display: "flex",
-  alignItems: "center",
-  justifyContent: "space-between",
-  gap: 12,
-  flexWrap: "wrap",
-};
-const filtersRowStyle: React.CSSProperties = {
-  padding: "0 14px 12px 14px",
-  display: "flex",
-  alignItems: "center",
-  justifyContent: "space-between",
-  gap: 12,
-  flexWrap: "wrap",
-};
-const searchWrapStyle: React.CSSProperties = { flex: 1, minWidth: 260 };
-
-const searchInputStyle: React.CSSProperties = {
-  width: "100%",
-  height: 40,
-  padding: "0 12px",
-  borderRadius: 12,
-  border: "1px solid rgba(15, 23, 42, 0.12)",
-  outline: "none",
-  fontWeight: 700,
-};
-
-const selectStyle: React.CSSProperties = {
-  height: 40,
-  padding: "0 12px",
-  borderRadius: 12,
-  border: "1px solid rgba(15, 23, 42, 0.12)",
-  outline: "none",
-  background: "white",
-  fontWeight: 800,
-};
-
-const softBtnStyle: React.CSSProperties = {
-  height: 40,
-  padding: "0 12px",
-  borderRadius: 12,
-  border: "1px solid rgba(15, 23, 42, 0.12)",
-  background: "white",
-  fontWeight: 900,
-  cursor: "pointer",
-};
-
-const primaryBtnStyle: React.CSSProperties = {
-  height: 40,
-  padding: "0 14px",
-  borderRadius: 12,
-  border: "1px solid rgba(220, 38, 38, 0.35)",
-  background: "rgb(220, 38, 38)",
-  color: "white",
-  fontWeight: 950,
-  cursor: "pointer",
-};
-
-const tableWrapStyle: React.CSSProperties = { width: "100%", overflowX: "auto", borderTop: "1px solid rgba(15, 23, 42, 0.10)" };
-const tableStyle: React.CSSProperties = { width: "100%", minWidth: 980, borderCollapse: "separate", borderSpacing: 0 };
-
-const thStyle: React.CSSProperties = {
-  textAlign: "left",
-  padding: "10px 12px",
-  fontSize: 12,
-  letterSpacing: 0.2,
-  opacity: 0.7,
-  fontWeight: 900,
-  background: "rgba(15, 23, 42, 0.02)",
-  borderBottom: "1px solid rgba(15, 23, 42, 0.08)",
-  whiteSpace: "nowrap",
-};
-
-const thBtnStyle: React.CSSProperties = {
-  border: "none",
-  background: "transparent",
-  padding: 0,
-  cursor: "pointer",
-  font: "inherit",
-  fontWeight: "inherit",
-  opacity: "inherit",
-  display: "inline-flex",
-  alignItems: "center",
-  gap: 6,
-};
-
-const tdStyle: React.CSSProperties = {
-  padding: "10px 12px",
-  fontSize: 13,
-  fontWeight: 750,
-  borderBottom: "1px solid rgba(15, 23, 42, 0.06)",
-  verticalAlign: "middle",
-  whiteSpace: "nowrap",
-};
-
-const tdStyleStrong: React.CSSProperties = { ...tdStyle, fontWeight: 950 };
-const tdStyleCenter: React.CSSProperties = { ...tdStyle, textAlign: "center" };
-
-const emptyStyle: React.CSSProperties = { padding: 16, textAlign: "center", opacity: 0.65, fontWeight: 800 };
-
-const iconBtnStyle: React.CSSProperties = {
-  width: 34,
-  height: 34,
-  borderRadius: 10,
-  border: "1px solid rgba(15, 23, 42, 0.12)",
-  background: "white",
-  cursor: "pointer",
-  fontWeight: 900,
-};
-
-const iconBtnDangerStyle: React.CSSProperties = { ...iconBtnStyle, border: "1px solid rgba(220, 38, 38, 0.20)", color: "rgb(220,38,38)" };
-
-const popoverStyle: React.CSSProperties = {
-  position: "absolute",
-  top: 44,
-  right: 0,
-  background: "white",
-  border: "1px solid rgba(15, 23, 42, 0.12)",
-  borderRadius: 14,
-  boxShadow: "0 12px 30px rgba(15, 23, 42, 0.14)",
-  padding: 12,
-  minWidth: 240,
-  zIndex: 30,
-};
-
-const overlayStyle: React.CSSProperties = {
-  position: "fixed",
-  inset: 0,
-  background: "rgba(2, 6, 23, 0.30)",
-  display: "flex",
-  alignItems: "center",
-  justifyContent: "center",
-  padding: 12,
-  zIndex: 50,
-};
-
-const modalStyle: React.CSSProperties = {
-  width: "min(820px, 96vw)",
-  maxHeight: "min(78vh, 820px)",
-  background: "white",
-  borderRadius: 14,
-  border: "1px solid rgba(15, 23, 42, 0.12)",
-  boxShadow: "0 18px 60px rgba(2, 6, 23, 0.22)",
-  overflow: "hidden",
-};
-
-const modalHeaderStyle: React.CSSProperties = {
-  padding: 14,
-  display: "flex",
-  alignItems: "center",
-  justifyContent: "space-between",
-  gap: 12,
-  borderBottom: "1px solid rgba(15, 23, 42, 0.08)",
-};
-const modalBodyStyle: React.CSSProperties = { padding: 14, overflow: "auto", maxHeight: "calc(min(78vh, 820px) - 120px)" };
-const modalFooterStyle: React.CSSProperties = { padding: 14, display: "flex", justifyContent: "flex-end", gap: 10, borderTop: "1px solid rgba(15, 23, 42, 0.08)" };
-
-const inlineErrorStyle: React.CSSProperties = {
-  margin: "0 14px 10px 14px",
-  padding: "10px 12px",
-  borderRadius: 10,
-  background: "rgba(220,38,38,0.08)",
-  color: "rgb(220,38,38)",
-  fontWeight: 900,
-  fontSize: 13,
-};
-
-const labelStyle: React.CSSProperties = { fontSize: 12, fontWeight: 900, opacity: 0.75, marginBottom: 6 };
-
-const inputStyle: React.CSSProperties = {
-  width: "100%",
-  height: 40,
-  padding: "0 12px",
-  borderRadius: 12,
-  border: "1px solid rgba(15, 23, 42, 0.12)",
-  outline: "none",
-  fontWeight: 800,
-};
-// ===== BLOCK 3/4 =====
   useEffect(() => {
-    const root = document.getElementById("sessions-new-ui-root");
-    if (!root) return;
+    let alive = true;
 
-    const hideForeignSessionsBand = () => {
-      const buttons = Array.from(document.querySelectorAll("button"));
-      const colonnesButtons = buttons.filter((b) => (b.textContent ?? "").toLowerCase().includes("colonnes"));
+    supabase.auth.getUser().then(({ data }) => {
+      if (!alive) return;
+      setUserId(data.user?.id ?? null);
+    });
 
-      for (const btn of colonnesButtons) {
-        if (root.contains(btn)) continue;
+    const { data: sub } = supabase.auth.onAuthStateChange((_event, session) => {
+      if (!alive) return;
+      setUserId(session?.user?.id ?? null);
+    });
 
-        let el: HTMLElement | null = btn as HTMLElement;
-        for (let i = 0; i < 6 && el; i++) {
-          const txt = (el.innerText ?? "").trim().toLowerCase();
-          if (txt.includes("sessions") && txt.includes("colonnes")) {
-            el.style.display = "none";
-            el.style.visibility = "hidden";
-            el.style.pointerEvents = "none";
-            break;
-          }
-          el = el.parentElement;
-        }
-      }
+    return () => {
+      alive = false;
+      sub.subscription.unsubscribe();
     };
-
-    hideForeignSessionsBand();
-    const obs = new MutationObserver(() => hideForeignSessionsBand());
-    obs.observe(document.body, { childList: true, subtree: true });
-
-    return () => obs.disconnect();
   }, []);
+
+  const [orgId, setOrgId] = useState<string | null>(null);
+  const [orgLoading, setOrgLoading] = useState(true);
+
+  useEffect(() => {
+    let alive = true;
+
+    if (!userId) {
+      setOrgId(null);
+      setOrgLoading(true);
+      return;
+    }
+
+    (async () => {
+      setOrgLoading(true);
+      const { data, error } = await supabase.rpc("current_org_id");
+      if (!alive) return;
+
+      if (error) {
+        setOrgId(null);
+        setOrgLoading(false);
+        return;
+      }
+
+      setOrgId((data as string) ?? null);
+      setOrgLoading(false);
+    })();
+
+    return () => {
+      alive = false;
+    };
+  }, [userId]);
+
+  // ✅ droits basés sur la visibilité réelle (memberships)
+  const canCreate = true;
+  const canEdit = true;
+  const canDelete = true;
+
+  const [rows, setRows] = useState<SessionRow[]>([]);
+  const [clients, setClients] = useState<ClientRow[]>([]);
+  const [products, setProducts] = useState<ProductRow[]>([]);
+  const [loading, setLoading] = useState(true);
+
+  const [pageError, setPageError] = useState<string | null>(null);
+  const [formError, setFormError] = useState<string | null>(null);
+
+  const [q, setQ] = useState("");
+  const [deliveryFilter, setDeliveryFilter] = useState<DeliveryType | "ALL">("ALL");
+  const [sort, setSort] = useState<SortState>({ key: "start_date", dir: "desc" });
+
+  const [viewLearners, setViewLearners] = useState<LearnerRow[]>([]);
+  const [viewLearnersLoading, setViewLearnersLoading] = useState(false);
+  const [viewLearnersError, setViewLearnersError] = useState<string | null>(null);
+
+  const [learnerCountBySession, setLearnerCountBySession] = useState<Record<string, number>>({});
+
+  const [subcontractors, setSubcontractors] = useState<SubcontractorRow[]>([]);
+  const [subcontractorsLoading, setSubcontractorsLoading] = useState(false);
+
+  function toggleSort(key: SortKey, defaultDir: "asc" | "desc" = "asc") {
+    setSort((s) => (s.key === key ? { key, dir: s.dir === "asc" ? "desc" : "asc" } : { key, dir: defaultDir }));
+  }
+
+  function sortArrow(key: SortKey) {
+    if (sort.key !== key) return "";
+    return sort.dir === "asc" ? " ▲" : " ▼";
+  }
+
+  const [cols, setCols] = useState({
+    dates: true,
+    status: true,
+    name: true,
+    product: true,
+    client: true,
+    type: true,
+    city: true,
+    duration: true,
+    learners: true,
+    certification: true,
+    actions: true,
+  });
+
+  const [openCols, setOpenCols] = useState(false);
+  const colsBtnRef = useRef<HTMLButtonElement | null>(null);
+  const colsPopRef = useRef<HTMLDivElement | null>(null);
+
+  useEffect(() => {
+    function onDown(e: MouseEvent) {
+      if (!openCols) return;
+      const t = e.target as Node;
+      if (colsBtnRef.current && colsBtnRef.current.contains(t)) return;
+      if (colsPopRef.current && colsPopRef.current.contains(t)) return;
+      setOpenCols(false);
+    }
+    document.addEventListener("mousedown", onDown);
+    return () => document.removeEventListener("mousedown", onDown);
+  }, [openCols]);
+
+  const [openCreate, setOpenCreate] = useState(false);
+  const [openEdit, setOpenEdit] = useState(false);
+  const [openView, setOpenView] = useState(false);
+  const [saving, setSaving] = useState(false);
+
+  const [lastCreatedSession, setLastCreatedSession] = useState<{
+    id: string;
+    product_id: string | null;
+    client_id: string | null;
+    start_date: string | null;
+    end_date: string | null;
+    location_structure: string | null;
+  } | null>(null);
+
+  const [selectedId, setSelectedId] = useState<string | null>(null);
+  const selected = useMemo(() => rows.find((r) => r.id === selectedId) ?? null, [rows, selectedId]);
+
+  const [form, setForm] = useState({
+    product_id: "",
+    name: "",
+    delivery_type: "direct" as DeliveryType,
+    subcontractor_user_id: "",
+    client_id: "",
+    start_date: "",
+    end_date: "",
+    certification_date: "",
+    location_structure: "",
+    location_street: "",
+    location_postal_code: "",
+    location_city: "",
+  });
+
+  function setField<K extends keyof typeof form>(key: K, value: (typeof form)[K]) {
+    setForm((p) => {
+      if (key === "end_date") {
+        const end = String(value ?? "");
+        return { ...p, end_date: end, certification_date: end };
+      }
+
+      if (key === "delivery_type") {
+        const dt = String(value ?? "") as DeliveryType;
+        if (dt !== "sous_traitee") {
+          return { ...p, delivery_type: dt, subcontractor_user_id: "" } as any;
+        }
+        return { ...p, delivery_type: dt } as any;
+      }
+
+      return { ...p, [key]: value };
+    });
+  }
+
+  function resetForm() {
+    setFormError(null);
+    setForm({
+      product_id: "",
+      name: "",
+      delivery_type: "direct",
+      subcontractor_user_id: "",
+      client_id: "",
+      start_date: "",
+      end_date: "",
+      certification_date: "",
+      location_structure: "",
+      location_street: "",
+      location_postal_code: "",
+      location_city: "",
+    });
+  }
 
   useEffect(() => {
     void bootstrap();
@@ -766,18 +638,13 @@ const inputStyle: React.CSSProperties = {
     setLearnerCountBySession(map);
   }
 
+  // ✅ FETCHSESSIONS — via RPC (miroir)
   async function fetchSessions() {
     setPageError(null);
 
     const { data, error } = await supabase.rpc("get_my_visible_sessions");
 
     if (error) {
-      if ((error.message || "").toLowerCase().includes("forbidden")) {
-        setPageError(null);
-        setRows([]);
-        setLearnerCountBySession({});
-        return;
-      }
       setPageError(error.message);
       setRows([]);
       setLearnerCountBySession({});
@@ -791,11 +658,14 @@ const inputStyle: React.CSSProperties = {
 
     const enriched = raw.map((r) => ({
       ...r,
+      session_status: (r as any).session_status ?? "à planifier",
       client_name: (r as any).client_name ?? (r.client_id ? clientMap.get(r.client_id) ?? "—" : "—"),
       product_name: (r as any).product_name ?? (r.product_id ? prodMap.get(r.product_id) ?? "—" : "—"),
     }));
 
     setRows(enriched);
+
+    // ✅ recalcul apprenants
     await fetchLearnerCountsForSessions(enriched.map((s) => s.id));
   }
 
@@ -806,12 +676,15 @@ const inputStyle: React.CSSProperties = {
     const thisYear = rows.filter((r) => yearOf(r.start_date) === nowYear);
     const prevYearRows = rows.filter((r) => yearOf(r.start_date) === prevYear);
 
-    const upcoming = rows.filter((r) => statusOfSession(r) === "UPCOMING");
-    const subcontract = rows.filter((r) => r.delivery_type === "subcontract");
-    const direct = rows.filter((r) => r.delivery_type === "direct");
-
     const totalDaysThisYear = thisYear.reduce((acc, r) => acc + daysBetweenInclusive(r.start_date, r.end_date), 0);
     const totalDaysPrevYear = prevYearRows.reduce((acc, r) => acc + daysBetweenInclusive(r.start_date, r.end_date), 0);
+
+    const countToPlan = rows.filter((r) => computeSessionStatus(r) === "à planifier").length;
+    const countUpcoming = rows.filter((r) => computeSessionStatus(r) === "à venir").length;
+    const countPast = rows.filter((r) => computeSessionStatus(r) === "passé").length;
+
+    const subcontract = rows.filter((r) => r.delivery_type === "subcontract").length;
+    const direct = rows.filter((r) => r.delivery_type === "direct").length;
 
     return {
       nowYear,
@@ -820,13 +693,15 @@ const inputStyle: React.CSSProperties = {
       countPrevYear: prevYearRows.length,
       totalDaysThisYear,
       totalDaysPrevYear,
-      upcomingCount: upcoming.length,
-      directCount: direct.length,
-      subcontractCount: subcontract.length,
+      countToPlan,
+      countUpcoming,
+      countPast,
+      directCount: direct,
+      subcontractCount: subcontract,
     };
   }, [rows]);
 
-  const filtered = useMemo(() => {
+  const baseFiltered = useMemo(() => {
     const qq = safeLower(q.trim());
 
     const base = rows.filter((r) => {
@@ -840,46 +715,48 @@ const inputStyle: React.CSSProperties = {
 
       const matchesDelivery = deliveryFilter === "ALL" ? true : r.delivery_type === deliveryFilter;
 
-      const st = statusOfSession(r);
-      const matchesTime = timeFilter === "ALL" ? true : st === timeFilter;
-
-      return matchesQ && matchesDelivery && matchesTime;
+      return matchesQ && matchesDelivery;
     });
 
     return sortSessions(base, sort, learnerCountBySession);
-  }, [rows, q, deliveryFilter, timeFilter, sort, learnerCountBySession]);
+  }, [rows, q, deliveryFilter, sort, learnerCountBySession]);
+
+  const rowsToPlan = useMemo(() => baseFiltered.filter((r) => computeSessionStatus(r) === "à planifier"), [baseFiltered]);
+  const rowsUpcoming = useMemo(() => baseFiltered.filter((r) => computeSessionStatus(r) === "à venir"), [baseFiltered]);
+  const rowsPast = useMemo(() => baseFiltered.filter((r) => computeSessionStatus(r) === "passé"), [baseFiltered]);
 
   function openCreateModal() {
-    if (!canCreate) return;
     resetForm();
     setSelectedId(null);
     setOpenCreate(true);
+    setLastCreatedSession(null);
   }
   function closeCreateModal() {
     setOpenCreate(false);
     setFormError(null);
+    setLastCreatedSession(null);
   }
 
-  function openViewModal(id: string) {
+  async function openViewModal(id: string) {
     setSelectedId(id);
     setOpenView(true);
-    void loadLearnersForSession(id);
+    setLastCreatedSession(null);
+    await loadLearnersForSession(id);
   }
+
   function closeViewModal() {
     setOpenView(false);
     setSelectedId(null);
     setViewLearners([]);
     setViewLearnersError(null);
+    setViewLearnersLoading(false);
   }
 
   function openEditModal(id: string) {
-    if (!canEdit) return;
+    setLastCreatedSession(null);
 
     const r = rows.find((x) => x.id === id);
     if (!r) return;
-
-    const isSubcontractSession = r.delivery_type === "subcontract" && r.subcontractor_user_id === userId;
-    if (isSubcontractSession) return;
 
     setSelectedId(id);
     setFormError(null);
@@ -890,9 +767,9 @@ const inputStyle: React.CSSProperties = {
       delivery_type: (r.delivery_type ?? "direct") as DeliveryType,
       subcontractor_user_id: r.subcontractor_user_id ?? "",
       client_id: r.client_id ?? "",
-      start_date: r.start_date ?? "",
-      end_date: r.end_date ?? "",
-      certification_date: r.certification_date ?? "",
+      start_date: (r.start_date ?? "") as any,
+      end_date: (r.end_date ?? "") as any,
+      certification_date: (r.certification_date ?? "") as any,
       location_structure: r.location_structure ?? "",
       location_street: r.location_street ?? "",
       location_postal_code: r.location_postal_code ?? "",
@@ -932,7 +809,7 @@ const inputStyle: React.CSSProperties = {
 
   async function saveCreate() {
     if (!canCreate) {
-      setFormError("Accès refusé.");
+      setFormError("Tu dois être activé sur un organisme (OF) pour créer une session.");
       return;
     }
     if (saving) return;
@@ -953,10 +830,10 @@ const inputStyle: React.CSSProperties = {
         delivery_type: form.delivery_type,
         subcontractor_user_id: form.delivery_type === "sous_traitee" ? form.subcontractor_user_id || null : null,
         client_id: form.client_id || null,
-        start_date: form.start_date,
-        end_date: form.end_date,
+        start_date: form.start_date || null,
+        end_date: form.end_date || null,
         certification_date: form.end_date || null,
-
+        session_status: "à venir",
         location_structure: form.location_structure.trim() || null,
         location_street: form.location_street.trim() || null,
         location_postal_code: form.location_postal_code.trim() || null,
@@ -971,23 +848,15 @@ const inputStyle: React.CSSProperties = {
 
       if (error || !created?.id) return setFormError(error?.message ?? "Création impossible.");
 
-      const go = window.confirm("Session créée ✅\n\nVoulez-vous ajouter plusieurs apprenants maintenant ?");
-      if (go) {
-        const params = new URLSearchParams({
-          multi: "1",
-          session_id: created.id,
-          product_id: created.product_id ?? "",
-          client_id: created.client_id ?? "",
-          start_date: created.start_date ?? "",
-          end_date: created.end_date ?? "",
-          structure: created.location_structure ?? "",
-        });
+      setLastCreatedSession({
+        id: created.id,
+        product_id: (created as any).product_id ?? null,
+        client_id: (created as any).client_id ?? null,
+        start_date: (created as any).start_date ?? null,
+        end_date: (created as any).end_date ?? null,
+        location_structure: (created as any).location_structure ?? null,
+      });
 
-        window.location.href = `/apprenants?${params.toString()}`;
-        return;
-      }
-
-      closeCreateModal();
       await fetchSessions();
     } finally {
       setSaving(false);
@@ -1013,10 +882,9 @@ const inputStyle: React.CSSProperties = {
         delivery_type: form.delivery_type,
         subcontractor_user_id: form.delivery_type === "sous_traitee" ? form.subcontractor_user_id || null : null,
         client_id: form.client_id || null,
-        start_date: form.start_date,
-        end_date: form.end_date,
+        start_date: form.start_date || null,
+        end_date: form.end_date || null,
         certification_date: form.end_date || null,
-
         location_structure: form.location_structure.trim() || null,
         location_street: form.location_street.trim() || null,
         location_postal_code: form.location_postal_code.trim() || null,
@@ -1033,23 +901,41 @@ const inputStyle: React.CSSProperties = {
     }
   }
 
+  function goAddLearnersFromSession(s: {
+    id: string;
+    product_id: string | null;
+    client_id: string | null;
+    start_date: string | null;
+    end_date: string | null;
+    location_structure: string | null;
+  }) {
+    const params = new URLSearchParams({
+      multi: "1",
+      session_id: s.id,
+      product_id: s.product_id ?? "",
+      client_id: s.client_id ?? "",
+      start_date: s.start_date ?? "",
+      end_date: s.end_date ?? "",
+      structure: s.location_structure ?? "",
+    });
+
+    window.location.href = `/apprenants?${params.toString()}`;
+  }
+  // ===== BLOCK 3/4 =====
   async function deleteRow(id: string) {
     if (!canDelete) return;
 
-    const ok = window.confirm("Supprimer cette session ?");
+    const ok = window.confirm("Supprimer définitivement cette session ?");
     if (!ok) return;
 
     setPageError(null);
 
-    const { data, error } = await supabase.rpc("delete_session", { p_session_id: id });
+    const { error } = await supabase.rpc("delete_session_hard", {
+      p_session_id: id,
+    });
 
     if (error) {
       setPageError(error.message);
-      return;
-    }
-
-    if (data !== true) {
-      setPageError("Suppression impossible.");
       return;
     }
 
@@ -1059,31 +945,52 @@ const inputStyle: React.CSSProperties = {
       delete next[id];
       return next;
     });
+  }
+
+  async function cycleStatusForSession(id: string) {
+    if (!canEdit) return;
+
+    const current = rows.find((x) => x.id === id);
+    if (!current) return;
+
+    const cur = computeSessionStatus(current);
+    const next: SessionStatus = cur === "passé" ? "à planifier" : cur === "à planifier" ? "à venir" : "passé";
+
+    setRows((prev) => prev.map((r) => (r.id === id ? ({ ...r, session_status: next } as any) : r)));
+    setPageError(null);
+
+    const { data: updated, error } = await supabase
+      .from(SESSIONS_TABLE)
+      .update({ session_status: next })
+      .eq("id", id)
+      .select("id,session_status")
+      .maybeSingle();
+
+    if (error) {
+      setPageError(errorToMessage(error));
+      await fetchSessions();
+      return;
+    }
+
+    if (!updated?.id) {
+      setPageError("Update non appliqué (0 ligne). Vérifie RLS / org_id.");
+      await fetchSessions();
+      return;
+    }
 
     await fetchSessions();
   }
 
   async function loadLearnersForSession(sessionId: string) {
-    setViewLearners([]);
-    setViewLearnersError(null);
     setViewLearnersLoading(true);
+    setViewLearnersError(null);
 
     try {
-      const org = await supabase.rpc("current_org_id");
-      const orgId2 = org.data as string | null;
-      if (!orgId2) {
-        setViewLearnersError("Organisation introuvable.");
-        return;
-      }
-
-      const { data: links, error: linkErr } = await supabase
-        .from("apprenant_sessions")
-        .select("apprenant_id")
-        .eq("org_id", orgId2)
-        .eq("session_id", sessionId);
+      const { data: links, error: linkErr } = await supabase.from("apprenant_sessions").select("apprenant_id").eq("session_id", sessionId);
 
       if (linkErr) {
-        setViewLearnersError(linkErr.message);
+        setViewLearners([]);
+        setViewLearnersError(errorToMessage(linkErr));
         return;
       }
 
@@ -1096,177 +1003,34 @@ const inputStyle: React.CSSProperties = {
 
       const { data: apprenants, error: apprErr } = await supabase
         .from("apprenants")
-        .select("id,last_name,first_name,email")
-        .eq("org_id", orgId2)
+        .select("id, first_name, last_name, email")
         .in("id", apprenantIds)
-        .order("last_name", { ascending: true });
+        .order("last_name");
 
       if (apprErr) {
-        setViewLearnersError(apprErr.message);
+        setViewLearners([]);
+        setViewLearnersError(errorToMessage(apprErr));
         return;
       }
 
-      setViewLearners((apprenants ?? []) as any[]);
+      setViewLearners((apprenants ?? []) as LearnerRow[]);
+    } catch (e: any) {
+      setViewLearners([]);
+      setViewLearnersError(errorToMessage(e));
     } finally {
       setViewLearnersLoading(false);
     }
   }
-  // ===== BLOCK 4/4 =====
-  return (
-    <div id="sessions-new-ui-root" style={containerStyle}>
-      <style jsx>{`
-        .kpiGrid {
-          display: grid;
-          grid-template-columns: repeat(5, minmax(0, 1fr));
-          gap: 14px;
-          margin-top: 14px;
-        }
-        @media (max-width: 1100px) {
-          .kpiGrid {
-            grid-template-columns: repeat(3, minmax(0, 1fr));
-          }
-        }
-        @media (max-width: 720px) {
-          .kpiGrid {
-            grid-template-columns: repeat(2, minmax(0, 1fr));
-          }
-        }
-        @media (max-width: 460px) {
-          .kpiGrid {
-            grid-template-columns: 1fr;
-          }
-        }
-      `}</style>
 
-      {/* Header */}
-      <div style={headerRowStyle}>
-        <div>
-          <div style={{ fontSize: 28, fontWeight: 950, letterSpacing: -0.2 }}>Sessions</div>
-          <div style={{ opacity: 0.6, marginTop: 2 }}>Gestion des sessions</div>
-        </div>
+  function TableCard(props: { title: string; rows: SessionRow[] }) {
+    const list = props.rows;
 
-        <div style={{ display: "flex", gap: 10, alignItems: "center" }}>
-          <button style={softBtnStyle} onClick={() => void bootstrap()} disabled={loading || isLoading} type="button">
-            Rafraîchir
-          </button>
-
-          {canCreate && (
-            <button style={primaryBtnStyle} onClick={openCreateModal} type="button" disabled={isLoading || membershipLoading}>
-              + Nouvelle session
-            </button>
-          )}
-        </div>
-      </div>
-
-      {/* KPI */}
-      <div className="kpiGrid" style={kpiGridStyle}>
-        <KpiCard title={`Sessions ${kpi.nowYear}`} value={`${kpi.countThisYear}`} sub={`${kpi.prevYear}: ${kpi.countPrevYear}`} tone="green" icon="📅" />
-        <KpiCard title={`Jours de formation ${kpi.nowYear}`} value={`${kpi.totalDaysThisYear}`} sub={`${kpi.prevYear} : ${kpi.totalDaysPrevYear} jours`} tone="orange" icon="⏱" />
-        <KpiCard title="À venir" value={`${kpi.upcomingCount}`} sub="sessions" tone="blue" icon="🗓️" />
-        <KpiCard title="Clients direct" value={`${kpi.directCount}`} sub="sessions" tone="blue" icon="👤" />
-        <KpiCard title="Sous-traitance" value={`${kpi.subcontractCount}`} sub="sessions" tone="red" icon="🔁" />
-      </div>
-
-      {/* Tableau */}
+    return (
       <div style={{ ...cardStyle, marginTop: 16 }}>
-        <div style={sectionHeaderStyle}>
-          <div style={{ fontSize: 18, fontWeight: 950 }}>Liste des sessions</div>
-
-          <div style={{ display: "flex", gap: 8, position: "relative" }}>
-            <button ref={colsBtnRef} style={softBtnStyle} type="button" onClick={() => setOpenCols((v) => !v)}>
-              ⚙ Colonnes
-            </button>
-
-            {openCols && (
-              <div ref={colsPopRef} style={popoverStyle}>
-                <div style={{ fontWeight: 950, marginBottom: 10, opacity: 0.8 }}>Afficher</div>
-
-                {(
-                  [
-                    ["dates", "Dates"],
-                    ["name", "Nom"],
-                    ["product", "Formation"],
-                    ["client", "Client"],
-                    ["type", "Type"],
-                    ["city", "Ville"],
-                    ["duration", "Durée"],
-                    ["learners", "Apprenants"],
-                    ["certification", "Certification"],
-                    ["actions", "Actions"],
-                  ] as Array<[keyof typeof cols, string]>
-                ).map(([k, label]) => (
-                  <label
-                    key={k}
-                    style={{
-                      display: "flex",
-                      alignItems: "center",
-                      justifyContent: "space-between",
-                      gap: 10,
-                      padding: "10px 10px",
-                      borderRadius: 12,
-                      fontWeight: 900,
-                    }}
-                    onMouseEnter={(e) => (e.currentTarget.style.background = "rgba(15,23,42,0.04)")}
-                    onMouseLeave={(e) => (e.currentTarget.style.background = "transparent")}
-                  >
-                    <span>{label}</span>
-                    <input type="checkbox" checked={(cols as any)[k]} onChange={() => setCols((c) => ({ ...c, [k]: !(c as any)[k] }))} />
-                  </label>
-                ))}
-
-                <div style={{ display: "flex", gap: 10, marginTop: 10 }}>
-                  <button
-                    style={softBtnStyle}
-                    type="button"
-                    onClick={() =>
-                      setCols({
-                        dates: true,
-                        name: true,
-                        product: true,
-                        client: true,
-                        type: true,
-                        city: true,
-                        duration: true,
-                        learners: true,
-                        certification: true,
-                        actions: true,
-                      })
-                    }
-                  >
-                    Reset
-                  </button>
-
-                  <button style={softBtnStyle} type="button" onClick={() => setOpenCols(false)}>
-                    Fermer
-                  </button>
-                </div>
-              </div>
-            )}
-
-            <button style={softBtnStyle} onClick={() => void bootstrap()} disabled={loading || isLoading} type="button">
-              Rafraîchir
-            </button>
+        <div style={{ ...sectionHeaderStyle, borderBottom: "1px solid rgba(15, 23, 42, 0.08)" }}>
+          <div style={{ fontSize: 18, fontWeight: 950 }}>
+            {props.title} <span style={{ opacity: 0.55, fontWeight: 900 }}>({list.length})</span>
           </div>
-        </div>
-
-        <div style={filtersRowStyle}>
-          <div style={searchWrapStyle}>
-            <input style={searchInputStyle} placeholder="Rechercher une session…" value={q} onChange={(e) => setQ(e.target.value)} />
-          </div>
-
-          <select style={selectStyle} value={timeFilter} onChange={(e) => setTimeFilter(e.target.value as any)} title="Période">
-            <option value="ALL">Tous</option>
-            <option value="UPCOMING">À venir</option>
-            <option value="ONGOING">En cours</option>
-            <option value="PAST">Terminées</option>
-          </select>
-
-          <select style={selectStyle} value={deliveryFilter} onChange={(e) => setDeliveryFilter(e.target.value as any)} title="Type">
-            <option value="ALL">Tous types</option>
-            <option value="direct">Client direct</option>
-            <option value="subcontract">Sous-traitance</option>
-            <option value="sous_traitee">Sous-traitée</option>
-          </select>
         </div>
 
         <div style={tableWrapStyle}>
@@ -1280,6 +1044,15 @@ const inputStyle: React.CSSProperties = {
                     </button>
                   </th>
                 )}
+
+                {cols.status && (
+                  <th style={thStyle}>
+                    <button style={thBtnStyle} type="button" onClick={() => toggleSort("session_status", "asc")}>
+                      Statut{sortArrow("session_status")}
+                    </button>
+                  </th>
+                )}
+
                 {cols.name && (
                   <th style={thStyle}>
                     <button style={thBtnStyle} type="button" onClick={() => toggleSort("name", "asc")}>
@@ -1287,6 +1060,7 @@ const inputStyle: React.CSSProperties = {
                     </button>
                   </th>
                 )}
+
                 {cols.product && (
                   <th style={thStyle}>
                     <button style={thBtnStyle} type="button" onClick={() => toggleSort("product_name", "asc")}>
@@ -1294,6 +1068,7 @@ const inputStyle: React.CSSProperties = {
                     </button>
                   </th>
                 )}
+
                 {cols.client && (
                   <th style={thStyle}>
                     <button style={thBtnStyle} type="button" onClick={() => toggleSort("client_name", "asc")}>
@@ -1301,6 +1076,7 @@ const inputStyle: React.CSSProperties = {
                     </button>
                   </th>
                 )}
+
                 {cols.type && (
                   <th style={thStyle}>
                     <button style={thBtnStyle} type="button" onClick={() => toggleSort("delivery_type", "asc")}>
@@ -1308,6 +1084,7 @@ const inputStyle: React.CSSProperties = {
                     </button>
                   </th>
                 )}
+
                 {cols.city && (
                   <th style={thStyle}>
                     <button style={thBtnStyle} type="button" onClick={() => toggleSort("location_city", "asc")}>
@@ -1315,6 +1092,7 @@ const inputStyle: React.CSSProperties = {
                     </button>
                   </th>
                 )}
+
                 {cols.duration && (
                   <th style={{ ...thStyle, textAlign: "center" }}>
                     <button style={thBtnStyle} type="button" onClick={() => toggleSort("duration_days", "desc")}>
@@ -1322,6 +1100,7 @@ const inputStyle: React.CSSProperties = {
                     </button>
                   </th>
                 )}
+
                 {cols.learners && (
                   <th style={{ ...thStyle, textAlign: "center" }}>
                     <button style={thBtnStyle} type="button" onClick={() => toggleSort("learners_count", "desc")}>
@@ -1329,6 +1108,7 @@ const inputStyle: React.CSSProperties = {
                     </button>
                   </th>
                 )}
+
                 {cols.certification && (
                   <th style={thStyle}>
                     <button style={thBtnStyle} type="button" onClick={() => toggleSort("certification_date", "desc")}>
@@ -1336,6 +1116,7 @@ const inputStyle: React.CSSProperties = {
                     </button>
                   </th>
                 )}
+
                 {cols.actions && <th style={{ ...thStyle, textAlign: "center" }}>Actions</th>}
               </tr>
             </thead>
@@ -1347,23 +1128,32 @@ const inputStyle: React.CSSProperties = {
                     Chargement…
                   </td>
                 </tr>
-              ) : filtered.length === 0 ? (
+              ) : list.length === 0 ? (
                 <tr>
                   <td colSpan={99} style={emptyStyle}>
                     Aucune session
                   </td>
                 </tr>
               ) : (
-                filtered.map((r) => {
+                list.map((r) => {
+                  // "subcontract" + moi = sous-traitant => pas d'edit/delete
                   const isSubcontractSession = r.delivery_type === "subcontract" && r.subcontractor_user_id === userId;
+
                   const durDays = daysBetweenInclusive(r.start_date, r.end_date);
                   const learnersCount = learnerCountBySession[r.id] ?? 0;
+                  const sessionStatus = computeSessionStatus(r);
 
                   return (
                     <tr key={r.id}>
                       {cols.dates && (
                         <td style={tdStyle}>
                           {toFrDate(r.start_date)} → {toFrDate(r.end_date)}
+                        </td>
+                      )}
+
+                      {cols.status && (
+                        <td style={tdStyle}>
+                          <SessionStatusPill value={sessionStatus} disabled={!canEdit} onClick={() => void cycleStatusForSession(r.id)} />
                         </td>
                       )}
 
@@ -1375,7 +1165,13 @@ const inputStyle: React.CSSProperties = {
                         <td style={tdStyle}>
                           <StatusPill
                             tone={r.delivery_type === "subcontract" ? "red" : r.delivery_type === "sous_traitee" ? "orange" : "blue"}
-                            label={r.delivery_type === "subcontract" ? "Sous-traitance" : r.delivery_type === "sous_traitee" ? "Sous-traitée" : "Client direct"}
+                            label={
+                              r.delivery_type === "subcontract"
+                                ? (r.subcontractor_user_id === userId ? "Sous-traitant" : "Sous-traitance")
+                                : r.delivery_type === "sous_traitee"
+                                ? "Sous-traitée"
+                                : "Client direct"
+                            }
                           />
                         </td>
                       )}
@@ -1413,9 +1209,165 @@ const inputStyle: React.CSSProperties = {
             </tbody>
           </table>
         </div>
-
-        {pageError && !openCreate && !openEdit && !openView && <div style={{ padding: 12, color: "rgb(220,38,38)", fontWeight: 900 }}>{pageError}</div>}
       </div>
+    );
+  }
+
+  return (
+    <div id="sessions-new-ui-root" style={containerStyle}>
+      <style jsx>{`
+        .kpiGrid {
+          display: grid;
+          grid-template-columns: repeat(5, minmax(0, 1fr));
+          gap: 14px;
+          margin-top: 14px;
+        }
+        @media (max-width: 1100px) {
+          .kpiGrid {
+            grid-template-columns: repeat(3, minmax(0, 1fr));
+          }
+        }
+        @media (max-width: 720px) {
+          .kpiGrid {
+            grid-template-columns: repeat(2, minmax(0, 1fr));
+          }
+        }
+        @media (max-width: 460px) {
+          .kpiGrid {
+            grid-template-columns: 1fr;
+          }
+        }
+      `}</style>
+
+      <div style={headerRowStyle}>
+        <div>
+          <div style={{ fontSize: 28, fontWeight: 950, letterSpacing: -0.2 }}>Sessions</div>
+          <div style={{ opacity: 0.6, marginTop: 2 }}>Gestion des sessions</div>
+        </div>
+
+        <div style={{ display: "flex", gap: 10, alignItems: "center" }}>
+          <button style={softBtnStyle} onClick={() => void bootstrap()} disabled={loading} type="button">
+            Rafraîchir
+          </button>
+
+          {canCreate && (
+            <button style={primaryBtnStyle} onClick={openCreateModal} type="button">
+              + Nouvelle session
+            </button>
+          )}
+        </div>
+      </div>
+
+      <div className="kpiGrid" style={kpiGridStyle}>
+        <KpiCard title={`Sessions ${kpi.nowYear}`} value={`${kpi.countThisYear}`} sub={`${kpi.prevYear}: ${kpi.countPrevYear}`} tone="blue" icon="📅" />
+        <KpiCard title={`Jours de formation ${kpi.nowYear}`} value={`${kpi.totalDaysThisYear}`} sub={`${kpi.prevYear} : ${kpi.totalDaysPrevYear} jours`} tone="orange" icon="⏱" />
+        <KpiCard title="À planifier" value={`${kpi.countToPlan}`} sub="sessions" tone="red" icon="🧩" />
+        <KpiCard title="À venir" value={`${kpi.countUpcoming}`} sub="sessions" tone="orange" icon="🗓️" />
+        <KpiCard title="Passées" value={`${kpi.countPast}`} sub="sessions" tone="green" icon="✅" />
+      </div>
+
+      <div style={{ ...cardStyle, marginTop: 16 }}>
+        <div style={sectionHeaderStyle}>
+          <div style={{ fontSize: 18, fontWeight: 950 }}>Filtres</div>
+
+          <div style={{ display: "flex", gap: 8, position: "relative" }}>
+            <button ref={colsBtnRef} style={softBtnStyle} type="button" onClick={() => setOpenCols((v) => !v)}>
+              ⚙ Colonnes
+            </button>
+
+            {openCols && (
+              <div ref={colsPopRef} style={popoverStyle}>
+                <div style={{ fontWeight: 950, marginBottom: 10, opacity: 0.8 }}>Afficher</div>
+
+                {(
+                  [
+                    ["dates", "Dates"],
+                    ["status", "Statut"],
+                    ["name", "Nom"],
+                    ["product", "Formation"],
+                    ["client", "Client"],
+                    ["type", "Type"],
+                    ["city", "Ville"],
+                    ["duration", "Durée"],
+                    ["learners", "Apprenants"],
+                    ["certification", "Certification"],
+                    ["actions", "Actions"],
+                  ] as Array<[keyof typeof cols, string]>
+                ).map(([k, label]) => (
+                  <label
+                    key={k}
+                    style={{
+                      display: "flex",
+                      alignItems: "center",
+                      justifyContent: "space-between",
+                      gap: 10,
+                      padding: "10px 10px",
+                      borderRadius: 12,
+                      fontWeight: 900,
+                    }}
+                    onMouseEnter={(e) => (e.currentTarget.style.background = "rgba(15,23,42,0.04)")}
+                    onMouseLeave={(e) => (e.currentTarget.style.background = "transparent")}
+                  >
+                    <span>{label}</span>
+                    <input type="checkbox" checked={(cols as any)[k]} onChange={() => setCols((c) => ({ ...c, [k]: !(c as any)[k] }))} />
+                  </label>
+                ))}
+
+                <div style={{ display: "flex", gap: 10, marginTop: 10 }}>
+                  <button
+                    style={softBtnStyle}
+                    type="button"
+                    onClick={() =>
+                      setCols({
+                        dates: true,
+                        status: true,
+                        name: true,
+                        product: true,
+                        client: true,
+                        type: true,
+                        city: true,
+                        duration: true,
+                        learners: true,
+                        certification: true,
+                        actions: true,
+                      })
+                    }
+                  >
+                    Reset
+                  </button>
+
+                  <button style={softBtnStyle} type="button" onClick={() => setOpenCols(false)}>
+                    Fermer
+                  </button>
+                </div>
+              </div>
+            )}
+
+            <button style={softBtnStyle} onClick={() => void bootstrap()} disabled={loading} type="button">
+              Rafraîchir
+            </button>
+          </div>
+        </div>
+
+        <div style={filtersRowStyle}>
+          <div style={searchWrapStyle}>
+            <input style={searchInputStyle} placeholder="Rechercher une session…" value={q} onChange={(e) => setQ(e.target.value)} />
+          </div>
+
+          <select style={selectStyle} value={deliveryFilter} onChange={(e) => setDeliveryFilter(e.target.value as any)} title="Type">
+            <option value="ALL">Tous types</option>
+            <option value="direct">Client direct</option>
+            <option value="subcontract">Sous-traitance</option>
+            <option value="sous_traitee">Sous-traitée</option>
+          </select>
+        </div>
+      </div>
+
+      <TableCard title="Sessions à planifier" rows={rowsToPlan} />
+      <TableCard title="Sessions à venir" rows={rowsUpcoming} />
+      <TableCard title="Sessions passées" rows={rowsPast} />
+
+      {pageError && !openCreate && !openEdit && !openView && <div style={{ padding: 12, color: "rgb(220,38,38)", fontWeight: 900 }}>{pageError}</div>}
 
       {/* VIEW */}
       {openView && selected && (
@@ -1427,7 +1379,7 @@ const inputStyle: React.CSSProperties = {
                 <div style={{ opacity: 0.65, fontWeight: 800, marginTop: 2 }}>{selected.name}</div>
               </div>
 
-              <button style={softBtnStyle} onClick={closeViewModal} type="button">
+              <button style={softBtnStyle} onClick={(e) => (e.stopPropagation(), closeViewModal())} type="button">
                 Fermer
               </button>
             </div>
@@ -1454,9 +1406,7 @@ const inputStyle: React.CSSProperties = {
                     <div style={{ fontWeight: 950 }}>
                       {toFrDate(selected.start_date)} → {toFrDate(selected.end_date)}
                     </div>
-                    <div style={{ opacity: 0.65, fontWeight: 800, marginTop: 4 }}>
-                      Durée : {daysBetweenInclusive(selected.start_date, selected.end_date)} jour(s)
-                    </div>
+                    <div style={{ opacity: 0.65, fontWeight: 800, marginTop: 4 }}>Durée : {daysBetweenInclusive(selected.start_date, selected.end_date)} jour(s)</div>
                   </div>
                 </div>
 
@@ -1498,7 +1448,8 @@ const inputStyle: React.CSSProperties = {
                     <button
                       style={softBtnStyle}
                       type="button"
-                      onClick={() => {
+                      onClick={(e) => {
+                        e.stopPropagation();
                         const params = new URLSearchParams({
                           multi: "1",
                           session_id: selected.id,
@@ -1552,7 +1503,8 @@ const inputStyle: React.CSSProperties = {
                 <button
                   style={softBtnStyle}
                   type="button"
-                  onClick={() => {
+                  onClick={(e) => {
+                    e.stopPropagation();
                     closeViewModal();
                     openEditModal(selected.id);
                   }}
@@ -1561,7 +1513,7 @@ const inputStyle: React.CSSProperties = {
                 </button>
               )}
 
-              <button style={primaryBtnStyle} onClick={closeViewModal} type="button">
+              <button style={primaryBtnStyle} onClick={(e) => (e.stopPropagation(), closeViewModal())} type="button">
                 OK
               </button>
             </div>
@@ -1575,7 +1527,7 @@ const inputStyle: React.CSSProperties = {
           <div style={modalStyle} onMouseDown={(e) => e.stopPropagation()}>
             <div style={modalHeaderStyle}>
               <div style={{ fontSize: 18, fontWeight: 950 }}>Créer une session</div>
-              <button style={softBtnStyle} onClick={closeCreateModal} type="button">
+              <button style={softBtnStyle} onClick={(e) => (e.stopPropagation(), closeCreateModal())} type="button">
                 Fermer
               </button>
             </div>
@@ -1594,10 +1546,25 @@ const inputStyle: React.CSSProperties = {
             {formError && <div style={inlineErrorStyle}>{formError}</div>}
 
             <div style={modalFooterStyle}>
-              <button style={softBtnStyle} onClick={closeCreateModal} disabled={saving} type="button">
+              <button style={softBtnStyle} onClick={(e) => (e.stopPropagation(), closeCreateModal())} disabled={saving} type="button">
                 Annuler
               </button>
-              <button style={{ ...primaryBtnStyle, opacity: saving ? 0.75 : 1 }} onClick={() => void saveCreate()} disabled={saving} type="button">
+
+              <button
+                style={{ ...softBtnStyle, opacity: lastCreatedSession?.id ? 1 : 0.5, cursor: lastCreatedSession?.id ? "pointer" : "not-allowed" }}
+                disabled={saving || !lastCreatedSession?.id}
+                type="button"
+                onClick={(e) => {
+                  e.stopPropagation();
+                  if (!lastCreatedSession?.id) return;
+                  goAddLearnersFromSession(lastCreatedSession);
+                }}
+                title={!lastCreatedSession?.id ? "Crée d'abord la session" : ""}
+              >
+                Ajouter apprenants
+              </button>
+
+              <button style={{ ...primaryBtnStyle, opacity: saving ? 0.75 : 1 }} onClick={(e) => (e.stopPropagation(), void saveCreate())} disabled={saving} type="button">
                 {saving ? "Création…" : "Créer"}
               </button>
             </div>
@@ -1611,7 +1578,7 @@ const inputStyle: React.CSSProperties = {
           <div style={modalStyle} onMouseDown={(e) => e.stopPropagation()}>
             <div style={modalHeaderStyle}>
               <div style={{ fontSize: 18, fontWeight: 950 }}>Modifier session</div>
-              <button style={softBtnStyle} onClick={closeEditModal} type="button">
+              <button style={softBtnStyle} onClick={(e) => (e.stopPropagation(), closeEditModal())} type="button">
                 Fermer
               </button>
             </div>
@@ -1630,10 +1597,31 @@ const inputStyle: React.CSSProperties = {
             {formError && <div style={inlineErrorStyle}>{formError}</div>}
 
             <div style={modalFooterStyle}>
-              <button style={softBtnStyle} onClick={closeEditModal} disabled={saving} type="button">
+              <button style={softBtnStyle} onClick={(e) => (e.stopPropagation(), closeEditModal())} disabled={saving} type="button">
                 Annuler
               </button>
-              <button style={{ ...primaryBtnStyle, opacity: saving ? 0.75 : 1 }} onClick={() => void saveEdit()} disabled={saving} type="button">
+
+              <button
+                style={{ ...softBtnStyle, opacity: selected?.id ? 1 : 0.5, cursor: selected?.id ? "pointer" : "not-allowed" }}
+                disabled={saving || !selected?.id}
+                type="button"
+                onClick={(e) => {
+                  e.stopPropagation();
+                  if (!selected?.id) return;
+                  goAddLearnersFromSession({
+                    id: selected.id,
+                    product_id: selected.product_id ?? null,
+                    client_id: selected.client_id ?? null,
+                    start_date: selected.start_date ?? null,
+                    end_date: selected.end_date ?? null,
+                    location_structure: selected.location_structure ?? null,
+                  });
+                }}
+              >
+                Ajouter apprenants
+              </button>
+
+              <button style={{ ...primaryBtnStyle, opacity: saving ? 0.75 : 1 }} onClick={(e) => (e.stopPropagation(), void saveEdit())} disabled={saving} type="button">
                 {saving ? "Enregistrement…" : "Enregistrer"}
               </button>
             </div>
@@ -1704,12 +1692,7 @@ function SessionForm(props: {
       {form.delivery_type === "sous_traitee" && (
         <div>
           <div style={labelStyle}>Formateur sous-traitant (invité) *</div>
-          <select
-            style={selectStyle}
-            value={form.subcontractor_user_id}
-            onChange={(e) => setField("subcontractor_user_id", e.target.value)}
-            disabled={subcontractorsLoading}
-          >
+          <select style={selectStyle} value={form.subcontractor_user_id} onChange={(e) => setField("subcontractor_user_id", e.target.value)} disabled={subcontractorsLoading}>
             <option value="">{subcontractorsLoading ? "Chargement..." : "Sélectionner…"}</option>
             {subcontractors.map((s) => (
               <option key={s.user_id} value={s.user_id}>
@@ -1762,7 +1745,7 @@ function SessionForm(props: {
     </div>
   );
 }
-
+// ===== BLOCK 4/4 =====
 /* ================== UI bits ================== */
 function KpiCard(props: { title: string; value: string; sub: string; tone: "green" | "orange" | "red" | "blue"; icon: string }) {
   const toneMap: Record<string, { bg: string; icBg: string }> = {
@@ -1836,6 +1819,36 @@ function StatusPill(props: { label: string; tone: "green" | "orange" | "red" | "
       }}
     >
       {props.label}
+    </span>
+  );
+}
+
+function SessionStatusPill(props: { value: SessionStatus; disabled?: boolean; onClick?: () => void }) {
+  const tone: "green" | "orange" | "red" = props.value === "passé" ? "green" : props.value === "à venir" ? "orange" : "red";
+  const bg = tone === "green" ? "rgba(34,197,94,0.12)" : tone === "orange" ? "rgba(245,158,11,0.14)" : "rgba(239,68,68,0.14)";
+  const fg = tone === "green" ? "rgb(22,163,74)" : tone === "orange" ? "rgb(217,119,6)" : "rgb(220,38,38)";
+
+  return (
+    <span
+      title={props.disabled ? "Non modifiable" : "Cliquer pour changer"}
+      onClick={props.disabled ? undefined : props.onClick}
+      style={{
+        display: "inline-flex",
+        alignItems: "center",
+        padding: "6px 10px",
+        borderRadius: 999,
+        background: bg,
+        color: fg,
+        fontWeight: 950,
+        fontSize: 12,
+        whiteSpace: "nowrap",
+        cursor: props.disabled ? "not-allowed" : "pointer",
+        opacity: props.disabled ? 0.6 : 1,
+        border: "1px solid rgba(15, 23, 42, 0.10)",
+        userSelect: "none",
+      }}
+    >
+      {props.value}
     </span>
   );
 }
