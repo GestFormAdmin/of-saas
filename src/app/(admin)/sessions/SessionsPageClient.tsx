@@ -1,3 +1,5 @@
+// ===== BLOCK 1/4 =====
+// SessionsPage.tsx
 "use client";
 
 import React, { useEffect, useMemo, useRef, useState } from "react";
@@ -10,6 +12,8 @@ import { usePermissions } from "@/features/auth/PermissionsProviderClient";
    + Tableau triable par colonne
    + Après création: proposition ajout multiple d'apprenants
    + Sous-traitée => choix d’un formateur indépendant invité
+
+   ✅ RÈGLE: création session = utilisateur avec OF (membership active) ET pas invité
 ========================================================= */
 
 const SESSIONS_TABLE = "sessions";
@@ -130,11 +134,36 @@ function getLearnerEmail(l: LearnerRow) {
 
 /* ================== STYLES ================== */
 const containerStyle: React.CSSProperties = { width: "100%", maxWidth: 1200, margin: "0 auto", padding: 18 };
-const headerRowStyle: React.CSSProperties = { display: "flex", alignItems: "flex-start", justifyContent: "space-between", gap: 16, flexWrap: "wrap" };
+const headerRowStyle: React.CSSProperties = {
+  display: "flex",
+  alignItems: "flex-start",
+  justifyContent: "space-between",
+  gap: 16,
+  flexWrap: "wrap",
+};
 const kpiGridStyle: React.CSSProperties = { display: "grid", gridTemplateColumns: "repeat(5, minmax(0, 1fr))", gap: 14, marginTop: 14 };
-const cardStyle: React.CSSProperties = { background: "white", border: "1px solid rgba(15, 23, 42, 0.10)", borderRadius: 14, boxShadow: "0 1px 0 rgba(15, 23, 42, 0.04)" };
-const sectionHeaderStyle: React.CSSProperties = { padding: "14px 14px 10px 14px", display: "flex", alignItems: "center", justifyContent: "space-between", gap: 12, flexWrap: "wrap" };
-const filtersRowStyle: React.CSSProperties = { padding: "0 14px 12px 14px", display: "flex", alignItems: "center", justifyContent: "space-between", gap: 12, flexWrap: "wrap" };
+const cardStyle: React.CSSProperties = {
+  background: "white",
+  border: "1px solid rgba(15, 23, 42, 0.10)",
+  borderRadius: 14,
+  boxShadow: "0 1px 0 rgba(15, 23, 42, 0.04)",
+};
+const sectionHeaderStyle: React.CSSProperties = {
+  padding: "14px 14px 10px 14px",
+  display: "flex",
+  alignItems: "center",
+  justifyContent: "space-between",
+  gap: 12,
+  flexWrap: "wrap",
+};
+const filtersRowStyle: React.CSSProperties = {
+  padding: "0 14px 12px 14px",
+  display: "flex",
+  alignItems: "center",
+  justifyContent: "space-between",
+  gap: 12,
+  flexWrap: "wrap",
+};
 const searchWrapStyle: React.CSSProperties = { flex: 1, minWidth: 260 };
 
 const searchInputStyle: React.CSSProperties = {
@@ -245,11 +274,35 @@ const popoverStyle: React.CSSProperties = {
   zIndex: 30,
 };
 
-const overlayStyle: React.CSSProperties = { position: "fixed", inset: 0, background: "rgba(2, 6, 23, 0.30)", display: "flex", alignItems: "center", justifyContent: "center", padding: 12, zIndex: 50 };
+const overlayStyle: React.CSSProperties = {
+  position: "fixed",
+  inset: 0,
+  background: "rgba(2, 6, 23, 0.30)",
+  display: "flex",
+  alignItems: "center",
+  justifyContent: "center",
+  padding: 12,
+  zIndex: 50,
+};
 
-const modalStyle: React.CSSProperties = { width: "min(820px, 96vw)", maxHeight: "min(78vh, 820px)", background: "white", borderRadius: 14, border: "1px solid rgba(15, 23, 42, 0.12)", boxShadow: "0 18px 60px rgba(2, 6, 23, 0.22)", overflow: "hidden" };
+const modalStyle: React.CSSProperties = {
+  width: "min(820px, 96vw)",
+  maxHeight: "min(78vh, 820px)",
+  background: "white",
+  borderRadius: 14,
+  border: "1px solid rgba(15, 23, 42, 0.12)",
+  boxShadow: "0 18px 60px rgba(2, 6, 23, 0.22)",
+  overflow: "hidden",
+};
 
-const modalHeaderStyle: React.CSSProperties = { padding: 14, display: "flex", alignItems: "center", justifyContent: "space-between", gap: 12, borderBottom: "1px solid rgba(15, 23, 42, 0.08)" };
+const modalHeaderStyle: React.CSSProperties = {
+  padding: 14,
+  display: "flex",
+  alignItems: "center",
+  justifyContent: "space-between",
+  gap: 12,
+  borderBottom: "1px solid rgba(15, 23, 42, 0.08)",
+};
 const modalBodyStyle: React.CSSProperties = { padding: 14, overflow: "auto", maxHeight: "calc(min(78vh, 820px) - 120px)" };
 const modalFooterStyle: React.CSSProperties = { padding: 14, display: "flex", justifyContent: "flex-end", gap: 10, borderTop: "1px solid rgba(15, 23, 42, 0.08)" };
 
@@ -274,251 +327,336 @@ const inputStyle: React.CSSProperties = {
   outline: "none",
   fontWeight: 800,
 };
+// ===== BLOCK 1/4 =====
+// SessionsPage.tsx
+"use client";
 
-/* ================== SORT ================== */
-type SortKey =
-  | "start_date"
-  | "name"
-  | "product_name"
-  | "client_name"
-  | "delivery_type"
-  | "location_city"
-  | "duration_days"
-  | "certification_date"
-  | "learners_count";
+import React, { useEffect, useMemo, useRef, useState } from "react";
+import { supabase } from "@/lib/supabaseClient";
+import { usePermissions } from "@/features/auth/PermissionsProviderClient";
 
-type SortState = { key: SortKey; dir: "asc" | "desc" };
+/* =========================================================
+   Sessions — UI calée sur Factures (propre)
+   + Colonnes: popover en haut (pas en bas)
+   + Tableau triable par colonne
+   + Après création: proposition ajout multiple d'apprenants
+   + Sous-traitée => choix d’un formateur indépendant invité
 
-function compareNullable(a: any, b: any, dir: 1 | -1) {
-  if (a == null && b == null) return 0;
-  if (a == null) return -1 * dir;
-  if (b == null) return 1 * dir;
-  if (typeof a === "number" && typeof b === "number") return (a - b) * dir;
-  return String(a).localeCompare(String(b), "fr", { numeric: true }) * dir;
+   ✅ RÈGLE: création session = utilisateur avec OF (membership active) ET pas invité
+========================================================= */
+
+const SESSIONS_TABLE = "sessions";
+const CLIENTS_TABLE = "clients";
+const PRODUCTS_TABLE = "products";
+
+type DeliveryType = "direct" | "subcontract" | "sous_traitee";
+
+type ClientRow = { id: string; name: string };
+type ProductRow = { id: string; name: string };
+
+type SubcontractorRow = {
+  user_id: string;
+  display_name: string;
+  email: string | null;
+  logo_url: string | null;
+};
+
+type SessionRow = {
+  id: string;
+  org_id: string;
+  subcontractor_user_id?: string | null;
+
+  product_id: string | null;
+  client_id: string | null;
+
+  name: string;
+  delivery_type: DeliveryType;
+
+  start_date: string;
+  end_date: string;
+  certification_date: string | null;
+
+  location_structure: string | null;
+  location_street: string | null;
+  location_postal_code: string | null;
+  location_city: string | null;
+
+  created_at?: string;
+  updated_at?: string;
+
+  client_name?: string;
+  product_name?: string;
+};
+
+type LearnerRow = {
+  id: string;
+  name?: string | null;
+  full_name?: string | null;
+  nom?: string | null;
+  email?: string | null;
+  mail?: string | null;
+  last_name?: string | null;
+  first_name?: string | null;
+  [k: string]: any;
+};
+
+/* ================== HELPERS ================== */
+const required = (v?: string | null) => !!v && v.trim().length > 0;
+const safeLower = (s?: string | null) => (s ?? "").toLowerCase();
+
+const toFrDate = (d?: string | null) => {
+  if (!d) return "—";
+  try {
+    return new Date(d).toLocaleDateString("fr-FR");
+  } catch {
+    return "—";
+  }
+};
+
+function yearOf(date: string | null | undefined) {
+  if (!date) return null;
+  const d = new Date(date);
+  const y = d.getFullYear();
+  return Number.isFinite(y) ? y : null;
 }
 
-function sortSessions(rows: SessionRow[], sort: SortState, learnerCountBySession: Record<string, number>) {
-  const dir = sort.dir === "asc" ? (1 as const) : (-1 as const);
-
-  return [...rows].sort((ra, rb) => {
-    if (sort.key === "duration_days") {
-      const va = daysBetweenInclusive(ra.start_date, ra.end_date);
-      const vb = daysBetweenInclusive(rb.start_date, rb.end_date);
-      return compareNullable(va, vb, dir);
-    }
-
-    if (sort.key === "learners_count") {
-      const va = learnerCountBySession[ra.id] ?? 0;
-      const vb = learnerCountBySession[rb.id] ?? 0;
-      return compareNullable(va, vb, dir);
-    }
-
-    const a: any = ra as any;
-    const b: any = rb as any;
-    return compareNullable(a[sort.key], b[sort.key], dir);
-  });
+function daysBetweenInclusive(start: string, end: string) {
+  const s = new Date(start);
+  const e = new Date(end);
+  if (Number.isNaN(s.getTime()) || Number.isNaN(e.getTime())) return 0;
+  const diff = Math.floor((e.getTime() - s.getTime()) / (1000 * 60 * 60 * 24));
+  return Math.max(0, diff + 1);
 }
 
-/* ================== PAGE ================== */
-export default function SessionsPage() {
-  const { allowedPages, isLoading } = usePermissions() as any;
+function statusOfSession(r: SessionRow) {
+  const now = new Date();
+  const s = new Date(r.start_date);
+  const e = new Date(r.end_date);
+  if (Number.isNaN(s.getTime()) || Number.isNaN(e.getTime())) return "UNKNOWN" as const;
 
-  // --- user id (auth ready) ---
-  const [userId, setUserId] = useState<string | null>(null);
+  const today = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+  const sd = new Date(s.getFullYear(), s.getMonth(), s.getDate());
+  const ed = new Date(e.getFullYear(), e.getMonth(), e.getDate());
 
-  useEffect(() => {
-    let alive = true;
+  if (ed < today) return "PAST" as const;
+  if (sd > today) return "UPCOMING" as const;
+  return "ONGOING" as const;
+}
 
-    supabase.auth.getUser().then(({ data }) => {
-      if (!alive) return;
-      setUserId(data.user?.id ?? null);
-    });
+function getLearnerName(l: LearnerRow) {
+  const ln = typeof l.last_name === "string" ? l.last_name.trim() : "";
+  const fn = typeof l.first_name === "string" ? l.first_name.trim() : "";
+  if (ln || fn) return `${ln} ${fn}`.trim();
 
-    const { data: sub } = supabase.auth.onAuthStateChange((_event, session) => {
-      if (!alive) return;
-      setUserId(session?.user?.id ?? null);
-    });
+  if (typeof l.name === "string" && l.name.trim()) return l.name.trim();
+  if (typeof l.full_name === "string" && l.full_name.trim()) return l.full_name.trim();
+  if (typeof l.nom === "string" && l.nom.trim()) return l.nom.trim();
 
-    return () => {
-      alive = false;
-      sub.subscription.unsubscribe();
-    };
-  }, []);
+  return "—";
+}
 
-  // --- org id (only AFTER auth is ready) ---
-  const [orgId, setOrgId] = useState<string | null>(null);
-  const [orgLoading, setOrgLoading] = useState(true);
+function getLearnerEmail(l: LearnerRow) {
+  if (typeof l.email === "string" && l.email.trim()) return l.email.trim();
+  if (typeof l.mail === "string" && l.mail.trim()) return l.mail.trim();
+  return "";
+}
 
-  useEffect(() => {
-    let alive = true;
+/* ================== STYLES ================== */
+const containerStyle: React.CSSProperties = { width: "100%", maxWidth: 1200, margin: "0 auto", padding: 18 };
+const headerRowStyle: React.CSSProperties = {
+  display: "flex",
+  alignItems: "flex-start",
+  justifyContent: "space-between",
+  gap: 16,
+  flexWrap: "wrap",
+};
+const kpiGridStyle: React.CSSProperties = { display: "grid", gridTemplateColumns: "repeat(5, minmax(0, 1fr))", gap: 14, marginTop: 14 };
+const cardStyle: React.CSSProperties = {
+  background: "white",
+  border: "1px solid rgba(15, 23, 42, 0.10)",
+  borderRadius: 14,
+  boxShadow: "0 1px 0 rgba(15, 23, 42, 0.04)",
+};
+const sectionHeaderStyle: React.CSSProperties = {
+  padding: "14px 14px 10px 14px",
+  display: "flex",
+  alignItems: "center",
+  justifyContent: "space-between",
+  gap: 12,
+  flexWrap: "wrap",
+};
+const filtersRowStyle: React.CSSProperties = {
+  padding: "0 14px 12px 14px",
+  display: "flex",
+  alignItems: "center",
+  justifyContent: "space-between",
+  gap: 12,
+  flexWrap: "wrap",
+};
+const searchWrapStyle: React.CSSProperties = { flex: 1, minWidth: 260 };
 
-    // ✅ tant qu'on n'a pas un userId, on reste en "loading"
-    if (!userId) {
-      setOrgId(null);
-      setOrgLoading(true);
-      return;
-    }
+const searchInputStyle: React.CSSProperties = {
+  width: "100%",
+  height: 40,
+  padding: "0 12px",
+  borderRadius: 12,
+  border: "1px solid rgba(15, 23, 42, 0.12)",
+  outline: "none",
+  fontWeight: 700,
+};
 
-    (async () => {
-      setOrgLoading(true);
-      const { data, error } = await supabase.rpc("current_org_id");
-      if (!alive) return;
+const selectStyle: React.CSSProperties = {
+  height: 40,
+  padding: "0 12px",
+  borderRadius: 12,
+  border: "1px solid rgba(15, 23, 42, 0.12)",
+  outline: "none",
+  background: "white",
+  fontWeight: 800,
+};
 
-      if (error) {
-        setOrgId(null);
-        setOrgLoading(false);
-        return;
-      }
+const softBtnStyle: React.CSSProperties = {
+  height: 40,
+  padding: "0 12px",
+  borderRadius: 12,
+  border: "1px solid rgba(15, 23, 42, 0.12)",
+  background: "white",
+  fontWeight: 900,
+  cursor: "pointer",
+};
 
-      setOrgId((data as string) ?? null);
-      setOrgLoading(false);
-    })();
+const primaryBtnStyle: React.CSSProperties = {
+  height: 40,
+  padding: "0 14px",
+  borderRadius: 12,
+  border: "1px solid rgba(220, 38, 38, 0.35)",
+  background: "rgb(220, 38, 38)",
+  color: "white",
+  fontWeight: 950,
+  cursor: "pointer",
+};
 
-    return () => {
-      alive = false;
-    };
-  }, [userId]);
+const tableWrapStyle: React.CSSProperties = { width: "100%", overflowX: "auto", borderTop: "1px solid rgba(15, 23, 42, 0.10)" };
+const tableStyle: React.CSSProperties = { width: "100%", minWidth: 980, borderCollapse: "separate", borderSpacing: 0 };
 
-  const isOF = !orgLoading && !!orgId;
+const thStyle: React.CSSProperties = {
+  textAlign: "left",
+  padding: "10px 12px",
+  fontSize: 12,
+  letterSpacing: 0.2,
+  opacity: 0.7,
+  fontWeight: 900,
+  background: "rgba(15, 23, 42, 0.02)",
+  borderBottom: "1px solid rgba(15, 23, 42, 0.08)",
+  whiteSpace: "nowrap",
+};
 
-  // (garde tes perms pour edit/delete si tu veux, mais create = OF only)
-  const hasPerm = (perm: string) => {
-    if (isLoading) return false;
-    if (Array.isArray(allowedPages)) return allowedPages.includes(perm);
-    if (typeof allowedPages?.includes === "function") return allowedPages.includes(perm);
-    return false;
-  };
+const thBtnStyle: React.CSSProperties = {
+  border: "none",
+  background: "transparent",
+  padding: 0,
+  cursor: "pointer",
+  font: "inherit",
+  fontWeight: "inherit",
+  opacity: "inherit",
+  display: "inline-flex",
+  alignItems: "center",
+  gap: 6,
+};
 
-  // ✅ RÈGLE DEMANDÉE : bouton création UNIQUEMENT si OF actif (pas de perms)
-  const canCreate = isOF;
+const tdStyle: React.CSSProperties = {
+  padding: "10px 12px",
+  fontSize: 13,
+  fontWeight: 750,
+  borderBottom: "1px solid rgba(15, 23, 42, 0.06)",
+  verticalAlign: "middle",
+  whiteSpace: "nowrap",
+};
 
-  // edit/delete restent sur les permissions (comme avant)
-  const canEdit = hasPerm("sessions:edit");
-  const canDelete = hasPerm("sessions:delete");
+const tdStyleStrong: React.CSSProperties = { ...tdStyle, fontWeight: 950 };
+const tdStyleCenter: React.CSSProperties = { ...tdStyle, textAlign: "center" };
 
-  const [rows, setRows] = useState<SessionRow[]>([]);
-  const [clients, setClients] = useState<ClientRow[]>([]);
-  const [products, setProducts] = useState<ProductRow[]>([]);
-  const [loading, setLoading] = useState(true);
+const emptyStyle: React.CSSProperties = { padding: 16, textAlign: "center", opacity: 0.65, fontWeight: 800 };
 
-  const [pageError, setPageError] = useState<string | null>(null);
-  const [formError, setFormError] = useState<string | null>(null);
+const iconBtnStyle: React.CSSProperties = {
+  width: 34,
+  height: 34,
+  borderRadius: 10,
+  border: "1px solid rgba(15, 23, 42, 0.12)",
+  background: "white",
+  cursor: "pointer",
+  fontWeight: 900,
+};
 
-  const [q, setQ] = useState("");
-  const [deliveryFilter, setDeliveryFilter] = useState<DeliveryType | "ALL">("ALL");
-  const [timeFilter, setTimeFilter] = useState<"ALL" | "UPCOMING" | "ONGOING" | "PAST">("ALL");
-  const [sort, setSort] = useState<SortState>({ key: "start_date", dir: "desc" });
+const iconBtnDangerStyle: React.CSSProperties = { ...iconBtnStyle, border: "1px solid rgba(220, 38, 38, 0.20)", color: "rgb(220,38,38)" };
 
-  // Apprenants (VIEW)
-  const [viewLearners, setViewLearners] = useState<LearnerRow[]>([]);
-  const [viewLearnersLoading, setViewLearnersLoading] = useState(false);
-  const [viewLearnersError, setViewLearnersError] = useState<string | null>(null);
+const popoverStyle: React.CSSProperties = {
+  position: "absolute",
+  top: 44,
+  right: 0,
+  background: "white",
+  border: "1px solid rgba(15, 23, 42, 0.12)",
+  borderRadius: 14,
+  boxShadow: "0 12px 30px rgba(15, 23, 42, 0.14)",
+  padding: 12,
+  minWidth: 240,
+  zIndex: 30,
+};
 
-  // Compteur apprenants par session
-  const [learnerCountBySession, setLearnerCountBySession] = useState<Record<string, number>>({});
+const overlayStyle: React.CSSProperties = {
+  position: "fixed",
+  inset: 0,
+  background: "rgba(2, 6, 23, 0.30)",
+  display: "flex",
+  alignItems: "center",
+  justifyContent: "center",
+  padding: 12,
+  zIndex: 50,
+};
 
-  // Sous-traitants invités (pour delivery_type = sous_traitee)
-  const [subcontractors, setSubcontractors] = useState<SubcontractorRow[]>([]);
-  const [subcontractorsLoading, setSubcontractorsLoading] = useState(false);
+const modalStyle: React.CSSProperties = {
+  width: "min(820px, 96vw)",
+  maxHeight: "min(78vh, 820px)",
+  background: "white",
+  borderRadius: 14,
+  border: "1px solid rgba(15, 23, 42, 0.12)",
+  boxShadow: "0 18px 60px rgba(2, 6, 23, 0.22)",
+  overflow: "hidden",
+};
 
-  function toggleSort(key: SortKey, defaultDir: "asc" | "desc" = "asc") {
-    setSort((s) => (s.key === key ? { key, dir: s.dir === "asc" ? "desc" : "asc" } : { key, dir: defaultDir }));
-  }
+const modalHeaderStyle: React.CSSProperties = {
+  padding: 14,
+  display: "flex",
+  alignItems: "center",
+  justifyContent: "space-between",
+  gap: 12,
+  borderBottom: "1px solid rgba(15, 23, 42, 0.08)",
+};
+const modalBodyStyle: React.CSSProperties = { padding: 14, overflow: "auto", maxHeight: "calc(min(78vh, 820px) - 120px)" };
+const modalFooterStyle: React.CSSProperties = { padding: 14, display: "flex", justifyContent: "flex-end", gap: 10, borderTop: "1px solid rgba(15, 23, 42, 0.08)" };
 
-  function sortArrow(key: SortKey) {
-    if (sort.key !== key) return "";
-    return sort.dir === "asc" ? " ▲" : " ▼";
-  }
+const inlineErrorStyle: React.CSSProperties = {
+  margin: "0 14px 10px 14px",
+  padding: "10px 12px",
+  borderRadius: 10,
+  background: "rgba(220,38,38,0.08)",
+  color: "rgb(220,38,38)",
+  fontWeight: 900,
+  fontSize: 13,
+};
 
-  const [cols, setCols] = useState({
-    dates: true,
-    name: true,
-    product: true,
-    client: true,
-    type: true,
-    city: true,
-    duration: true,
-    learners: true,
-    certification: true,
-    actions: true,
-  });
+const labelStyle: React.CSSProperties = { fontSize: 12, fontWeight: 900, opacity: 0.75, marginBottom: 6 };
 
-  const [openCols, setOpenCols] = useState(false);
-  const colsBtnRef = useRef<HTMLButtonElement | null>(null);
-  const colsPopRef = useRef<HTMLDivElement | null>(null);
-
-  useEffect(() => {
-    function onDown(e: MouseEvent) {
-      if (!openCols) return;
-      const t = e.target as Node;
-      if (colsBtnRef.current && colsBtnRef.current.contains(t)) return;
-      if (colsPopRef.current && colsPopRef.current.contains(t)) return;
-      setOpenCols(false);
-    }
-    document.addEventListener("mousedown", onDown);
-    return () => document.removeEventListener("mousedown", onDown);
-  }, [openCols]);
-
-  const [openCreate, setOpenCreate] = useState(false);
-  const [openEdit, setOpenEdit] = useState(false);
-  const [openView, setOpenView] = useState(false);
-  const [saving, setSaving] = useState(false);
-
-  const [selectedId, setSelectedId] = useState<string | null>(null);
-  const selected = useMemo(() => rows.find((r) => r.id === selectedId) ?? null, [rows, selectedId]);
-
-  const [form, setForm] = useState({
-    product_id: "",
-    name: "",
-    delivery_type: "direct" as DeliveryType,
-    subcontractor_user_id: "",
-    client_id: "",
-    start_date: "",
-    end_date: "",
-    certification_date: "",
-    location_structure: "",
-    location_street: "",
-    location_postal_code: "",
-    location_city: "",
-  });
-
-  function setField<K extends keyof typeof form>(key: K, value: (typeof form)[K]) {
-    setForm((p) => {
-      if (key === "end_date") {
-        const end = String(value ?? "");
-        return { ...p, end_date: end, certification_date: end };
-      }
-
-      if (key === "delivery_type") {
-        const dt = String(value ?? "") as DeliveryType;
-        if (dt !== "sous_traitee") {
-          return { ...p, delivery_type: dt, subcontractor_user_id: "" } as any;
-        }
-        return { ...p, delivery_type: dt } as any;
-      }
-
-      return { ...p, [key]: value };
-    });
-  }
-
-  function resetForm() {
-    setFormError(null);
-    setForm({
-      product_id: "",
-      name: "",
-      delivery_type: "direct",
-      subcontractor_user_id: "",
-      client_id: "",
-      start_date: "",
-      end_date: "",
-      certification_date: "",
-      location_structure: "",
-      location_street: "",
-      location_postal_code: "",
-      location_city: "",
-    });
-  }
-
+const inputStyle: React.CSSProperties = {
+  width: "100%",
+  height: 40,
+  padding: "0 12px",
+  borderRadius: 12,
+  border: "1px solid rgba(15, 23, 42, 0.12)",
+  outline: "none",
+  fontWeight: 800,
+};
+// ===== BLOCK 3/4 =====
   useEffect(() => {
     const root = document.getElementById("sessions-new-ui-root");
     if (!root) return;
@@ -658,7 +796,6 @@ export default function SessionsPage() {
     }));
 
     setRows(enriched);
-
     await fetchLearnerCountsForSessions(enriched.map((s) => s.id));
   }
 
@@ -713,6 +850,7 @@ export default function SessionsPage() {
   }, [rows, q, deliveryFilter, timeFilter, sort, learnerCountBySession]);
 
   function openCreateModal() {
+    if (!canCreate) return;
     resetForm();
     setSelectedId(null);
     setOpenCreate(true);
@@ -735,6 +873,8 @@ export default function SessionsPage() {
   }
 
   function openEditModal(id: string) {
+    if (!canEdit) return;
+
     const r = rows.find((x) => x.id === id);
     if (!r) return;
 
@@ -792,7 +932,7 @@ export default function SessionsPage() {
 
   async function saveCreate() {
     if (!canCreate) {
-      setFormError("Tu dois être activé sur un organisme (OF) pour créer une session.");
+      setFormError("Accès refusé.");
       return;
     }
     if (saving) return;
@@ -971,7 +1111,7 @@ export default function SessionsPage() {
       setViewLearnersLoading(false);
     }
   }
-
+  // ===== BLOCK 4/4 =====
   return (
     <div id="sessions-new-ui-root" style={containerStyle}>
       <style jsx>{`
@@ -1006,12 +1146,12 @@ export default function SessionsPage() {
         </div>
 
         <div style={{ display: "flex", gap: 10, alignItems: "center" }}>
-          <button style={softBtnStyle} onClick={() => void bootstrap()} disabled={loading} type="button">
+          <button style={softBtnStyle} onClick={() => void bootstrap()} disabled={loading || isLoading} type="button">
             Rafraîchir
           </button>
 
           {canCreate && (
-            <button style={primaryBtnStyle} onClick={openCreateModal} type="button">
+            <button style={primaryBtnStyle} onClick={openCreateModal} type="button" disabled={isLoading || membershipLoading}>
               + Nouvelle session
             </button>
           )}
@@ -1057,7 +1197,15 @@ export default function SessionsPage() {
                 ).map(([k, label]) => (
                   <label
                     key={k}
-                    style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 10, padding: "10px 10px", borderRadius: 12, fontWeight: 900 }}
+                    style={{
+                      display: "flex",
+                      alignItems: "center",
+                      justifyContent: "space-between",
+                      gap: 10,
+                      padding: "10px 10px",
+                      borderRadius: 12,
+                      fontWeight: 900,
+                    }}
                     onMouseEnter={(e) => (e.currentTarget.style.background = "rgba(15,23,42,0.04)")}
                     onMouseLeave={(e) => (e.currentTarget.style.background = "transparent")}
                   >
@@ -1095,7 +1243,7 @@ export default function SessionsPage() {
               </div>
             )}
 
-            <button style={softBtnStyle} onClick={() => void bootstrap()} disabled={loading} type="button">
+            <button style={softBtnStyle} onClick={() => void bootstrap()} disabled={loading || isLoading} type="button">
               Rafraîchir
             </button>
           </div>

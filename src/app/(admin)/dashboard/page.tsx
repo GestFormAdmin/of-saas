@@ -2,6 +2,7 @@
 
 import Link from "next/link";
 import RequirePageAccessClient from "@/features/auth/RequirePageAccessClient";
+import DashboardChartsClient from "./DashboardChartsClient";
 
 export default function Page() {
   return (
@@ -79,6 +80,9 @@ export default function Page() {
             </div>
           </Link>
         </div>
+
+        {/* Graphiques */}
+        <DashboardChartsClient />
       </div>
     </RequirePageAccessClient>
   );

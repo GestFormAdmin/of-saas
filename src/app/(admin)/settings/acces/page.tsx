@@ -1,3 +1,4 @@
+// src/app/(admin)/settings/acces/page.tsx
 "use client";
 
 import * as React from "react";
@@ -93,11 +94,10 @@ export default function AccessPage() {
   };
 
   const canInvite = currentOrgRole === "owner" || currentOrgRole === "admin";
-
   const canManageMembers = canInvite;
 
   const canCreateOF = React.useMemo(() => {
-return !memberships.some((m) => m.role === "owner");
+    return !memberships.some((m) => m.role === "owner");
   }, [memberships]);
 
   const loadMembers = async (orgId: string) => {
@@ -157,16 +157,13 @@ return !memberships.some((m) => m.role === "owner");
     }));
 
     setMemberships(rows);
-setBusinessRows(rows);
+    setBusinessRows(rows);
 
     const current = rows.find((r) => r.org_id === curOrgId);
     setCurrentOrgType(current?.org_type ?? null);
     setCurrentOrgRole(current?.role ?? null);
 
-   const canManage =
-  (current?.role === "owner" || current?.role === "admin") &&
-  !!curOrgId;
-
+    const canManage = (current?.role === "owner" || current?.role === "admin") && !!curOrgId;
 
     if (canManage && curOrgId) {
       await loadMembers(curOrgId);
@@ -199,20 +196,42 @@ setBusinessRows(rows);
   }, []);
 
   const switchTo = async (orgId: string) => {
-    setMessage(null);
+  setMessage(null);
 
-    const { error } = await supabase.rpc("set_current_org", { p_org_id: orgId });
-    if (error) {
-      setMessage(error.message);
-      return;
-    }
+  const before = await supabase.rpc("current_org_id");
+  console.log("current_org_id BEFORE", before.data, before.error);
 
-    emitOrgChanged();
+  const { error } = await supabase.rpc("set_current_org", { p_org_id: orgId });
+  if (error) {
+    console.error("set_current_org error", error);
+    const a = await supabase.from("user_current_orgs").select("org_id, updated_at").single();
+console.log("user_current_orgs row", a.data, a.error);
 
-    setCurrentOrgId(orgId);
-    router.replace("/dashboard");
-    router.refresh();
-  };
+const b = await supabase.rpc("current_org_id");
+console.log("rpc current_org_id()", b.data, b.error);
+    setMessage(error.message);
+    return;
+  }
+
+  // refresh cache session
+  await supabase.auth.getSession();
+
+  const after = await supabase.rpc("current_org_id");
+  console.log("current_org_id AFTER", after.data, after.error);
+
+  // si ça ne change pas, on affiche le pb clairement
+  if (after.error || String(after.data ?? "") !== String(orgId)) {
+    setMessage(
+      `Switch non pris en compte. Attendu=${orgId} / Reçu=${String(after.data ?? "null")} / Err=${after.error?.message ?? "—"}`
+    );
+    return;
+  }
+
+  emitOrgChanged();
+
+  // hard nav = zéro cache
+  window.location.href = "/dashboard";
+};
 
   const invite = async () => {
     setMessage(null);
@@ -310,8 +329,7 @@ setBusinessRows(rows);
 
   const editTitle = React.useMemo(() => {
     if (!editMember) return "Modifier rôle";
-    const fullName =
-      [editMember.first_name, editMember.last_name].filter(Boolean).join(" ") || "—";
+    const fullName = [editMember.first_name, editMember.last_name].filter(Boolean).join(" ") || "—";
     return `Modifier rôle : ${fullName}`;
   }, [editMember]);
 
@@ -333,10 +351,13 @@ setBusinessRows(rows);
 
     const newOrgId = (typeof data === "string" ? data : null) as string | null;
     if (newOrgId) {
-      await supabase.rpc("set_current_org", { p_org_id: newOrgId });
+      const { error: setErr } = await supabase.rpc("set_current_org", { p_org_id: newOrgId });
+      if (setErr) {
+        setMessage(setErr.message);
+        return;
+      }
       emitOrgChanged();
-      router.replace("/dashboard");
-      router.refresh();
+      window.location.href = "/dashboard";
       return;
     }
 
@@ -410,8 +431,7 @@ setBusinessRows(rows);
               </div>
 
               {members.map((m) => {
-                const fullName =
-                  [m.first_name, m.last_name].filter(Boolean).join(" ") || "—";
+                const fullName = [m.first_name, m.last_name].filter(Boolean).join(" ") || "—";
                 const disable = m.user_id === myUserId || m.role === "owner";
 
                 return (

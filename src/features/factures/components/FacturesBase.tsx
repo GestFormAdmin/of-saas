@@ -1,3 +1,4 @@
+// ===== BLOCK 1/4 =====
 "use client";
 
 import React, { useEffect, useMemo, useRef, useState } from "react";
@@ -152,8 +153,6 @@ function splitHoursToDays(hours: number | null | undefined) {
 function formatDurationFromHours(hours: number | null | undefined) {
   return splitHoursToDays(hours).label;
 }
-
-
 
 /* ================== URSSAF ================== */
 const URSSAF_RATE = 0.27;
@@ -649,7 +648,6 @@ export default function FacturesDevisPage() {
     setRows(enriched);
   }
 
- 
   const kpi = useMemo(() => {
     const nowYear = new Date().getFullYear();
     const prevYear = nowYear - 1;
@@ -673,10 +671,7 @@ export default function FacturesDevisPage() {
       .reduce((acc, r) => acc + (Number(r.urssaf_amount) || 0), 0);
 
     const quotesEnCours = quotes.filter((r) => r.status === "EN_COURS");
-    const quotesEnCoursAmount = quotesEnCours.reduce(
-      (acc, r) => acc + (Number(r.amount_ttc) || 0),
-      0
-    );
+    const quotesEnCoursAmount = quotesEnCours.reduce((acc, r) => acc + (Number(r.amount_ttc) || 0), 0);
 
     const quotesSansSuite = quotes.filter((r) => r.status === "SANS_SUITE");
     const quotesSansSuiteAmount = quotesSansSuite.reduce((acc, r) => acc + (Number(r.amount_ttc) || 0), 0);
@@ -897,7 +892,7 @@ export default function FacturesDevisPage() {
       setSaving(false);
     }
   }
-
+  // ===== BLOCK 2/4 =====
   async function saveEdit() {
     if (!selectedId) return;
     if (saving) return;
@@ -1040,10 +1035,8 @@ export default function FacturesDevisPage() {
       <style jsx>{`
         .kpiGrid {
           display: grid;
-.kpiGrid {
-  grid-template-columns: repeat(6, minmax(0, 1fr));
-}
-            gap: 14px;
+          grid-template-columns: repeat(6, minmax(0, 1fr));
+          gap: 14px;
           margin-top: 14px;
         }
         @media (max-width: 1100px) {
@@ -1082,42 +1075,12 @@ export default function FacturesDevisPage() {
 
       {/* KPI */}
       <div className="kpiGrid" style={kpiGridStyle}>
-        <KpiCard
-          title={`CA annuel ${kpi.nowYear}`}
-          value={euro(kpi.caNow)}
-          sub={`${kpi.prevYear} : ${euro(kpi.caPrev)}`}
-          tone="green"
-          icon="📈"
-        />
-        <KpiCard
-          title="En attente de règlement"
-          value={euro(kpi.pendingAmount)}
-          sub={`${kpi.pendingCount} facture(s)`}
-          tone="orange"
-          icon="⏳"
-        />
+        <KpiCard title={`CA annuel ${kpi.nowYear}`} value={euro(kpi.caNow)} sub={`${kpi.prevYear} : ${euro(kpi.caPrev)}`} tone="green" icon="📈" />
+        <KpiCard title="En attente de règlement" value={euro(kpi.pendingAmount)} sub={`${kpi.pendingCount} facture(s)`} tone="orange" icon="⏳" />
         <KpiCard title="URSSAF en attente" value={euro(kpi.urssafPending)} sub=" " tone="red" icon="🧾" />
-        <KpiCard
-          title="Devis sans suite"
-          value={euro(kpi.quotesSansSuiteAmount)}
-          sub={`${kpi.quotesSansSuiteCount} devis`}
-          tone="blue"
-          icon="🚫"
-        />
-        <KpiCard
-  title="Devis en cours"
-  value={euro(kpi.quotesEnCoursAmount)}
-  sub={`${kpi.quotesEnCoursCount} devis`}
-  tone="blue"
-  icon="📝"
-/>
-        <KpiCard
-          title="Devis non retenus"
-          value={euro(kpi.quotesNonRetenusAmount)}
-          sub={`${kpi.quotesNonRetenusCount} devis`}
-          tone="red"
-          icon="⛔"
-        />
+        <KpiCard title="Devis sans suite" value={euro(kpi.quotesSansSuiteAmount)} sub={`${kpi.quotesSansSuiteCount} devis`} tone="blue" icon="🚫" />
+        <KpiCard title="Devis en cours" value={euro(kpi.quotesEnCoursAmount)} sub={`${kpi.quotesEnCoursCount} devis`} tone="blue" icon="📝" />
+        <KpiCard title="Devis non retenus" value={euro(kpi.quotesNonRetenusAmount)} sub={`${kpi.quotesNonRetenusCount} devis`} tone="red" icon="⛔" />
       </div>
 
       {/* ================== FACTURES ================== */}
@@ -1126,12 +1089,7 @@ export default function FacturesDevisPage() {
           <div style={{ fontSize: 18, fontWeight: 950 }}>Factures</div>
 
           <div style={{ display: "flex", gap: 8, position: "relative", alignItems: "center", flexWrap: "wrap" }}>
-            <button
-              ref={invColsBtnRef}
-              style={softBtnStyle}
-              type="button"
-              onClick={() => setOpenCols((v) => (v === "INVOICE" ? null : "INVOICE"))}
-            >
+            <button ref={invColsBtnRef} style={softBtnStyle} type="button" onClick={() => setOpenCols((v) => (v === "INVOICE" ? null : "INVOICE"))}>
               ⚙ Colonnes
             </button>
 
@@ -1214,12 +1172,7 @@ export default function FacturesDevisPage() {
 
         <div style={filtersRowStyle}>
           <div style={searchWrapStyle}>
-            <input
-              style={searchInputStyle}
-              placeholder="Rechercher une facture…"
-              value={qInvoices}
-              onChange={(e) => setQInvoices(e.target.value)}
-            />
+            <input style={searchInputStyle} placeholder="Rechercher une facture…" value={qInvoices} onChange={(e) => setQInvoices(e.target.value)} />
           </div>
 
           <select style={selectStyle} value={invoiceStatus} onChange={(e) => setInvoiceStatus(e.target.value as any)} title="Statut">
@@ -1354,12 +1307,7 @@ export default function FacturesDevisPage() {
 
                       {invoiceCols.urssaf && (
                         <td style={tdStyleCenter}>
-                          <BoolPill
-                            ok={!!r.urssaf_paid}
-                            okLabel="✓"
-                            koLabel="✕"
-                            onToggle={() => void toggleUrssafPaid(r.id, !!r.urssaf_paid)}
-                          />
+                          <BoolPill ok={!!r.urssaf_paid} okLabel="✓" koLabel="✕" onToggle={() => void toggleUrssafPaid(r.id, !!r.urssaf_paid)} />
                         </td>
                       )}
 
@@ -1412,23 +1360,16 @@ export default function FacturesDevisPage() {
           </table>
         </div>
 
-        {pageError && !openCreate && !openEdit && !openView && (
-          <div style={{ padding: 12, color: "rgb(220,38,38)", fontWeight: 900 }}>{pageError}</div>
-        )}
+        {pageError && !openCreate && !openEdit && !openView && <div style={{ padding: 12, color: "rgb(220,38,38)", fontWeight: 900 }}>{pageError}</div>}
       </div>
-
+      // ===== BLOCK 3/4 =====
       {/* ================== DEVIS ================== */}
       <div style={{ ...cardStyle, marginTop: 16 }}>
         <div style={sectionHeaderStyle}>
           <div style={{ fontSize: 18, fontWeight: 950 }}>Devis</div>
 
           <div style={{ display: "flex", gap: 8, position: "relative", alignItems: "center", flexWrap: "wrap" }}>
-            <button
-              ref={quoColsBtnRef}
-              style={softBtnStyle}
-              type="button"
-              onClick={() => setOpenCols((v) => (v === "QUOTE" ? null : "QUOTE"))}
-            >
+            <button ref={quoColsBtnRef} style={softBtnStyle} type="button" onClick={() => setOpenCols((v) => (v === "QUOTE" ? null : "QUOTE"))}>
               ⚙ Colonnes
             </button>
 
@@ -1501,12 +1442,7 @@ export default function FacturesDevisPage() {
 
         <div style={filtersRowStyle}>
           <div style={searchWrapStyle}>
-            <input
-              style={searchInputStyle}
-              placeholder="Rechercher un devis…"
-              value={qQuotes}
-              onChange={(e) => setQQuotes(e.target.value)}
-            />
+            <input style={searchInputStyle} placeholder="Rechercher un devis…" value={qQuotes} onChange={(e) => setQQuotes(e.target.value)} />
           </div>
 
           <select style={selectStyle} value={quoteStatus} onChange={(e) => setQuoteStatus(e.target.value as any)} title="Statut">
@@ -1556,9 +1492,7 @@ export default function FacturesDevisPage() {
                   <th style={{ ...thStyle, textAlign: "right" }}>
                     <button
                       type="button"
-                      onClick={() =>
-                        setQuoteSort((s) => ({ key: "amount_ttc", dir: s.key === "amount_ttc" && s.dir === "asc" ? "desc" : "asc" }))
-                      }
+                      onClick={() => setQuoteSort((s) => ({ key: "amount_ttc", dir: s.key === "amount_ttc" && s.dir === "asc" ? "desc" : "asc" }))}
                       style={thBtnStyle}
                     >
                       TTC{sortArrow(quoteSort, "amount_ttc")}
@@ -1681,9 +1615,7 @@ export default function FacturesDevisPage() {
           </table>
         </div>
 
-        {pageError && !openCreate && !openEdit && !openView && (
-          <div style={{ padding: 12, color: "rgb(220,38,38)", fontWeight: 900 }}>{pageError}</div>
-        )}
+        {pageError && !openCreate && !openEdit && !openView && <div style={{ padding: 12, color: "rgb(220,38,38)", fontWeight: 900 }}>{pageError}</div>}
       </div>
 
       {/* ================== VIEW MODAL ================== */}
@@ -1692,9 +1624,7 @@ export default function FacturesDevisPage() {
           <div style={modalStyle} onMouseDown={(e) => e.stopPropagation()}>
             <div style={modalHeaderStyle}>
               <div>
-                <div style={{ fontSize: 16, fontWeight: 950, letterSpacing: -0.2 }}>
-                  Voir {selected.type === "INVOICE" ? "facture" : "devis"}
-                </div>
+                <div style={{ fontSize: 16, fontWeight: 950, letterSpacing: -0.2 }}>Voir {selected.type === "INVOICE" ? "facture" : "devis"}</div>
                 <div style={{ opacity: 0.65, fontWeight: 800, marginTop: 2 }}>
                   {selected.client_name ?? "—"} • {selected.product_name ?? "—"}
                 </div>
@@ -1755,9 +1685,7 @@ export default function FacturesDevisPage() {
         <div style={overlayStyle} onMouseDown={closeCreateModal}>
           <div style={modalStyle} onMouseDown={(e) => e.stopPropagation()}>
             <div style={modalHeaderStyle}>
-              <div style={{ fontSize: 16, fontWeight: 950 }}>
-                Ajouter {form.type === "INVOICE" ? "une facture" : "un devis"}
-              </div>
+              <div style={{ fontSize: 16, fontWeight: 950 }}>Ajouter {form.type === "INVOICE" ? "une facture" : "un devis"}</div>
               <button style={softBtnStyle} onClick={closeCreateModal} type="button">
                 Fermer
               </button>
@@ -1821,12 +1749,7 @@ export default function FacturesDevisPage() {
 
             <div style={modalBodyStyle}>
               <div style={labelStyle}>Nom du client *</div>
-              <input
-                style={searchInputStyle}
-                value={clientCreateName}
-                onChange={(e) => setClientCreateName(e.target.value)}
-                placeholder="Ex: WOTAN"
-              />
+              <input style={searchInputStyle} value={clientCreateName} onChange={(e) => setClientCreateName(e.target.value)} placeholder="Ex: WOTAN" />
               {formError && <div style={inlineErrorStyle}>{formError}</div>}
             </div>
 
@@ -1844,7 +1767,7 @@ export default function FacturesDevisPage() {
     </div>
   );
 }
-
+// ===== BLOCK 4/4 =====
 /* ================== FORM FIELDS ================== */
 function FormFields(props: {
   form: any;
@@ -1855,6 +1778,12 @@ function FormFields(props: {
 }) {
   const { form, setField, clients, products, onAddClient } = props;
   const isInvoiceType = form.type === "INVOICE";
+
+  function isMultiProductById(productId: string) {
+    const p = products.find((x) => x.id === productId);
+    const name = (p?.name ?? "").toLowerCase().trim();
+    return name === "multiproduits" || name.includes("multiproduit");
+  }
 
   useEffect(() => {
     if (!isInvoiceType) return;
@@ -1935,6 +1864,9 @@ function FormFields(props: {
             const id = e.target.value;
             setField("product_id", id);
 
+            // ✅ si Multiproduits => ne touche pas nb_days
+            if (isMultiProductById(id)) return;
+
             const p = products.find((x) => x.id === id);
             if (!p) return;
 
@@ -1968,10 +1900,25 @@ function FormFields(props: {
 
         <div>
           <div style={labelStyle}>Nb jours</div>
-          <input type="number" min={0} style={searchInputStyle} value={form.nb_days} onChange={(e) => setField("nb_days", e.target.value)} placeholder="Ex: 2" />
-          <div style={{ marginTop: 6, fontSize: 12, opacity: 0.65, fontWeight: 800 }}>
-            (Auto depuis le produit — modifiable)
-          </div>
+
+          <input
+            type="number"
+            min={0}
+            style={searchInputStyle}
+            value={form.nb_days}
+            onChange={(e) => setField("nb_days", e.target.value)}
+            placeholder="Ex: 2"
+          />
+
+          {isMultiProductById(form.product_id) ? (
+            <div style={{ marginTop: 6, fontSize: 12, opacity: 0.65, fontWeight: 800 }}>
+              (Produit “Multiproduits” : saisis librement le nombre de jours)
+            </div>
+          ) : (
+            <div style={{ marginTop: 6, fontSize: 12, opacity: 0.65, fontWeight: 800 }}>
+              (Auto depuis le produit — modifiable)
+            </div>
+          )}
         </div>
       </div>
 
@@ -1985,9 +1932,7 @@ function FormFields(props: {
           <div style={labelStyle}>Montant TTC *</div>
           <input style={searchInputStyle} value={form.amount_ttc} onChange={(e) => setField("amount_ttc", e.target.value)} placeholder="Ex: 1440" />
           {isInvoiceType && (
-            <div style={{ marginTop: 6, fontSize: 12, opacity: 0.65, fontWeight: 800 }}>
-              URSSAF auto: {URSSAF_RATE} × TTC
-            </div>
+            <div style={{ marginTop: 6, fontSize: 12, opacity: 0.65, fontWeight: 800 }}>URSSAF auto: {URSSAF_RATE} × TTC</div>
           )}
         </div>
       </div>
@@ -2035,9 +1980,7 @@ function FormFields(props: {
             <div>
               <div style={labelStyle}>Montant URSSAF</div>
               <input style={searchInputStyle} value={form.urssaf_amount} onChange={(e) => setField("urssaf_amount", e.target.value)} placeholder="Auto (0,27 × TTC)" />
-              <div style={{ marginTop: 6, fontSize: 12, opacity: 0.65, fontWeight: 800 }}>
-                (Prérempli automatiquement — modifiable)
-              </div>
+              <div style={{ marginTop: 6, fontSize: 12, opacity: 0.65, fontWeight: 800 }}>(Prérempli automatiquement — modifiable)</div>
             </div>
           </div>
 
@@ -2167,7 +2110,12 @@ function BoolPill(props: { ok: boolean; okLabel: string; koLabel: string; onTogg
   if (!props.onToggle) return content;
 
   return (
-    <button type="button" onClick={props.onToggle} title="Changer URSSAF (clic)" style={{ border: "none", background: "transparent", padding: 0, cursor: "pointer" }}>
+    <button
+      type="button"
+      onClick={props.onToggle}
+      title="Changer URSSAF (clic)"
+      style={{ border: "none", background: "transparent", padding: 0, cursor: "pointer" }}
+    >
       {content}
     </button>
   );

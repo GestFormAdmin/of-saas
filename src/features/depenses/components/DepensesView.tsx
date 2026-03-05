@@ -1,3 +1,5 @@
+// ===== BLOCK 1/4 =====
+// DepensesPage.tsx
 "use client";
 
 import React, { useEffect, useMemo, useState } from "react";
@@ -79,7 +81,10 @@ function euro(n?: number | null) {
 }
 
 function parseDecimal(s: string) {
-  const cleaned = String(s ?? "").trim().replace(/\s/g, "").replace(",", ".");
+  const cleaned = String(s ?? "")
+    .trim()
+    .replace(/\s/g, "")
+    .replace(",", ".");
   if (!cleaned) return null;
   const num = Number(cleaned);
   if (Number.isNaN(num)) return null;
@@ -104,7 +109,7 @@ export default function DepensesPage() {
   const [rows, setRows] = useState<Expense[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
-const [orgId, setOrgId] = useState<string | null>(null);
+  const [orgId, setOrgId] = useState<string | null>(null);
 
   // filters
   const [q, setQ] = useState("");
@@ -163,47 +168,45 @@ const [orgId, setOrgId] = useState<string | null>(null);
     void fetchExpenses();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
-async function loadOrgId() {
-  const { data, error } = await supabase.rpc("current_org_id");
-  if (error) throw error;
 
-  const oid = (data as string) ?? null;
-  if (!oid) throw new Error("Aucun organisme associé à ce compte.");
-  return oid;
-}
-
- async function fetchExpenses() {
-  setLoading(true);
-  setError(null);
-
-  try {
-    const oid = orgId ?? (await loadOrgId());
-    setOrgId(oid);
-
-    if (!oid) {
-      setRows([]);
-      setError("Aucun organisme associé à ce compte.");
-      setLoading(false);
-      return;
-    }
-
-    const { data, error } = await supabase
-      .from("expenses")
-      .select("*")
-      .eq("org_id", oid)
-      .order("date", { ascending: false });
-
+  async function loadOrgId() {
+    const { data, error } = await supabase.rpc("current_org_id");
     if (error) throw error;
 
-    setRows((data ?? []) as Expense[]);
-  } catch (e: any) {
-    setError(e?.message ?? "Erreur chargement dépenses");
-    setRows([]);
-  } finally {
-    setLoading(false);
+    const oid = (data as string) ?? null;
+    if (!oid) throw new Error("Aucun organisme associé à ce compte.");
+    return oid;
   }
-}
 
+  async function fetchExpenses() {
+    setLoading(true);
+    setError(null);
+
+    try {
+      const oid = orgId ?? (await loadOrgId());
+      setOrgId(oid);
+
+      if (!oid) {
+        setRows([]);
+        setError("Aucun organisme associé à ce compte.");
+        setLoading(false);
+        return;
+      }
+
+      const { data, error } = await supabase.from("expenses").select("*").eq("org_id", oid).order("date", {
+        ascending: false,
+      });
+
+      if (error) throw error;
+
+      setRows((data ?? []) as Expense[]);
+    } catch (e: any) {
+      setError(e?.message ?? "Erreur chargement dépenses");
+      setRows([]);
+    } finally {
+      setLoading(false);
+    }
+  }
 
   /* ================== CATEGORIES / YEARS ================== */
   const categories = useMemo(() => {
@@ -216,39 +219,52 @@ async function loadOrgId() {
     const ys = Array.from(new Set(rows.map((r) => r.year))).sort((a, b) => b - a);
     return ys;
   }, [rows]);
+// ✅ 1) Remplace TON bloc KPI par celui-ci
+const kpi = useMemo(() => {
+  const year = new Date().getFullYear();
+  const prevYear = year - 1;
 
-  /* ================== KPI ================== */
-  const kpi = useMemo(() => {
-    const year = new Date().getFullYear();
-    const scope = rows.filter((r) => r.year === year);
+  const scope = rows.filter((r) => r.year === year);
+  const scopePrev = rows.filter((r) => r.year === prevYear);
 
-    const total = scope.reduce((acc, r) => acc + (Number(r.amount_ttc) || 0), 0);
-    const paid = scope.filter((r) => r.is_paid).reduce((acc, r) => acc + (Number(r.amount_ttc) || 0), 0);
-    const unpaid = scope.filter((r) => !r.is_paid).reduce((acc, r) => acc + (Number(r.amount_ttc) || 0), 0);
+  const total = scope.reduce((acc, r) => acc + (Number(r.amount_ttc) || 0), 0);
+  const totalPrev = scopePrev.reduce((acc, r) => acc + (Number(r.amount_ttc) || 0), 0);
 
-    // leaders
-    const byStructure = new Map<string, number>();
-    const byCategory = new Map<string, number>();
-    for (const r of scope) {
-      const s = (r.structure ?? "—").trim() || "—";
-      const c = (r.category ?? "—").trim() || "—";
-      byStructure.set(s, (byStructure.get(s) ?? 0) + (Number(r.amount_ttc) || 0));
-      byCategory.set(c, (byCategory.get(c) ?? 0) + (Number(r.amount_ttc) || 0));
-    }
-    const leaderStructure = [...byStructure.entries()].sort((a, b) => b[1] - a[1])[0];
-    const leaderCategory = [...byCategory.entries()].sort((a, b) => b[1] - a[1])[0];
+  const paid = scope.filter((r) => r.is_paid).reduce((acc, r) => acc + (Number(r.amount_ttc) || 0), 0);
+  const paidPrev = scopePrev
+    .filter((r) => r.is_paid)
+    .reduce((acc, r) => acc + (Number(r.amount_ttc) || 0), 0);
 
-    return {
-      year,
-      total,
-      paid,
-      unpaid,
-      count: rows.length,
-      leaderStructure: leaderStructure ? { name: leaderStructure[0], sum: leaderStructure[1] } : null,
-      leaderCategory: leaderCategory ? { name: leaderCategory[0], sum: leaderCategory[1] } : null,
-    };
-  }, [rows]);
+  const unpaid = scope.filter((r) => !r.is_paid).reduce((acc, r) => acc + (Number(r.amount_ttc) || 0), 0);
+  const unpaidPrev = scopePrev
+    .filter((r) => !r.is_paid)
+    .reduce((acc, r) => acc + (Number(r.amount_ttc) || 0), 0);
 
+  const byCategory = new Map<string, number>();
+  for (const r of scope) {
+    const c = (r.category ?? "—").trim() || "—";
+    byCategory.set(c, (byCategory.get(c) ?? 0) + (Number(r.amount_ttc) || 0));
+  }
+
+  const topCategories = [...byCategory.entries()]
+    .sort((a, b) => b[1] - a[1])
+    .slice(0, 3)
+    .map(([name, sum]) => ({ name, sum }));
+
+  return {
+    year,
+    prevYear,
+    total,
+    totalPrev,
+    paid,
+    paidPrev,
+    unpaid,
+    unpaidPrev,
+    countYear: scope.length,
+    countPrevYear: scopePrev.length,
+    topCategories,
+  };
+}, [rows]);
   /* ================== FILTER + SORT ================== */
   const filtered = useMemo(() => {
     const qq = safeLower(q.trim());
@@ -283,7 +299,6 @@ async function loadOrgId() {
       if (av === null || av === undefined) return 1 * dir;
       if (bv === null || bv === undefined) return -1 * dir;
 
-      // dates
       if (sortKey === "date") return String(av).localeCompare(String(bv)) * dir;
 
       return String(av).localeCompare(String(bv), "fr", { sensitivity: "base", numeric: true }) * dir;
@@ -357,7 +372,7 @@ async function loadOrgId() {
   function closeEditModal() {
     setOpenEdit(false);
   }
-
+  // ===== BLOCK 2/4 =====
   async function saveCreate() {
     setError(null);
 
@@ -370,14 +385,13 @@ async function loadOrgId() {
     const amountHt = parseDecimal(form.amount_ht);
     if (amountTtc === null) return setError("Montant TTC invalide.");
 
-const oid = orgId ?? (await loadOrgId());
-setOrgId(oid);
+    const oid = orgId ?? (await loadOrgId());
+    setOrgId(oid);
 
-if (!oid) return setError("Aucun organisme associé à ce compte.");
+    if (!oid) return setError("Aucun organisme associé à ce compte.");
 
-const payload = {
-  org_id: oid,
-
+    const payload = {
+      org_id: oid,
       date: form.date,
       designation: form.designation.trim(),
       category: form.category.trim(),
@@ -518,20 +532,57 @@ const payload = {
 
       {/* KPI */}
       <div className="kpiGrid" style={kpiGridStyle}>
-        <KpiCard title={`Total ${kpi.year}`} value={euro(kpi.total)} sub={`Réglées: ${euro(kpi.paid)}`} tone="green" icon="💶" />
-        <KpiCard title={`Réglées ${kpi.year}`} value={euro(kpi.paid)} sub={`Non réglées: ${euro(kpi.unpaid)}`} tone="blue" icon="✅" />
-        <KpiCard title="Non réglées" value={euro(kpi.unpaid)} sub={`Total: ${euro(kpi.total)}`} tone="orange" icon="⏳" />
-        <KpiCard title="Dépenses" value={`${kpi.count}`} sub={`Année: ${kpi.year}`} tone="red" icon="🧾" />
         <KpiCard
-          title="Leader"
-          value={kpi.leaderStructure ? kpi.leaderStructure.name : "—"}
-          sub={
-            kpi.leaderCategory
-              ? `Catégorie: ${kpi.leaderCategory.name}`
-              : "Catégorie: —"
-          }
+  title={`Total ${kpi.year}`}
+  value={euro(kpi.total)}
+  sub={`${kpi.prevYear} : ${euro(kpi.totalPrev)}`}
+  tone="green"
+  icon="💶"
+/>
+        <KpiCard
+  title={`Réglées ${kpi.year}`}
+  value={euro(kpi.paid)}
+  sub={`${kpi.prevYear} : ${euro(kpi.paidPrev)}`}
+  tone="blue"
+  icon="✅"
+/>
+<KpiCard
+  title={`Non réglées ${kpi.year}`}
+  value={euro(kpi.unpaid)}
+  sub={`${kpi.prevYear} : ${euro(kpi.unpaidPrev)}`}
+  tone="orange"
+  icon="⏳"
+/>
+<KpiCard
+  title="Dépenses"
+  value={`${kpi.countYear}`}
+  sub={`${kpi.prevYear} : ${kpi.countPrevYear}`}
+  tone="red"
+  icon="🧾"
+/>
+        <KpiCard
+          title="Top 3 catégories"
+          value={kpi.topCategories?.[0]?.name ?? "—"}
+         sub={
+  kpi.topCategories.length ? (
+    <div style={{ display: "grid", gap: 3, fontSize: 12, lineHeight: 1.15 }}>
+      {kpi.topCategories.map((c, i) => (
+        <div key={`${c.name}-${i}`} style={{ display: "flex", justifyContent: "space-between", gap: 10 }}>
+          <span style={{ fontWeight: 900, opacity: 0.85 }}>
+            {i + 1}. {c.name}
+          </span>
+          <span style={{ fontVariantNumeric: "tabular-nums", opacity: 0.85, fontWeight: 900 }}>
+            {euro(c.sum)}
+          </span>
+        </div>
+      ))}
+    </div>
+  ) : (
+    " "
+  )
+}
           tone="gray"
-          icon="🏆"
+          icon="🏷️"
         />
       </div>
 
@@ -616,23 +667,64 @@ const payload = {
           <table style={tableStyle}>
             <thead>
               <tr>
-                {enabledCols.date && <Th onClick={() => toggleSort("date")} align="left">Date {sortKey === "date" ? (sortDir === "asc" ? "▲" : "▼") : ""}</Th>}
-                {enabledCols.designation && <Th onClick={() => toggleSort("designation")} align="left">Désignation {sortKey === "designation" ? (sortDir === "asc" ? "▲" : "▼") : ""}</Th>}
-                {enabledCols.category && <Th onClick={() => toggleSort("category")} align="left">Catégorie {sortKey === "category" ? (sortDir === "asc" ? "▲" : "▼") : ""}</Th>}
-                {enabledCols.amount_ttc && <Th onClick={() => toggleSort("amount_ttc")} align="right">TTC {sortKey === "amount_ttc" ? (sortDir === "asc" ? "▲" : "▼") : ""}</Th>}
-                {enabledCols.amount_ht && <Th onClick={() => toggleSort("amount_ht")} align="right">HT {sortKey === "amount_ht" ? (sortDir === "asc" ? "▲" : "▼") : ""}</Th>}
-                {enabledCols.structure && <Th onClick={() => toggleSort("structure")} align="left">Structure {sortKey === "structure" ? (sortDir === "asc" ? "▲" : "▼") : ""}</Th>}
-                {enabledCols.is_paid && <Th onClick={() => toggleSort("is_paid")} align="center">Réglée {sortKey === "is_paid" ? (sortDir === "asc" ? "▲" : "▼") : ""}</Th>}
-                {enabledCols.year && <Th onClick={() => toggleSort("year")} align="center">Année {sortKey === "year" ? (sortDir === "asc" ? "▲" : "▼") : ""}</Th>}
+                {enabledCols.date && (
+                  <Th onClick={() => toggleSort("date")} align="left">
+                    Date {sortKey === "date" ? (sortDir === "asc" ? "▲" : "▼") : ""}
+                  </Th>
+                )}
+                {enabledCols.designation && (
+                  <Th onClick={() => toggleSort("designation")} align="left">
+                    Désignation {sortKey === "designation" ? (sortDir === "asc" ? "▲" : "▼") : ""}
+                  </Th>
+                )}
+                {enabledCols.category && (
+                  <Th onClick={() => toggleSort("category")} align="left">
+                    Catégorie {sortKey === "category" ? (sortDir === "asc" ? "▲" : "▼") : ""}
+                  </Th>
+                )}
+                {enabledCols.amount_ttc && (
+                  <Th onClick={() => toggleSort("amount_ttc")} align="right">
+                    TTC {sortKey === "amount_ttc" ? (sortDir === "asc" ? "▲" : "▼") : ""}
+                  </Th>
+                )}
+                {enabledCols.amount_ht && (
+                  <Th onClick={() => toggleSort("amount_ht")} align="right">
+                    HT {sortKey === "amount_ht" ? (sortDir === "asc" ? "▲" : "▼") : ""}
+                  </Th>
+                )}
+                {enabledCols.structure && (
+                  <Th onClick={() => toggleSort("structure")} align="left">
+                    Structure {sortKey === "structure" ? (sortDir === "asc" ? "▲" : "▼") : ""}
+                  </Th>
+                )}
+                {enabledCols.is_paid && (
+                  <Th onClick={() => toggleSort("is_paid")} align="center">
+                    Réglée {sortKey === "is_paid" ? (sortDir === "asc" ? "▲" : "▼") : ""}
+                  </Th>
+                )}
+                {enabledCols.year && (
+                  <Th onClick={() => toggleSort("year")} align="center">
+                    Année {sortKey === "year" ? (sortDir === "asc" ? "▲" : "▼") : ""}
+                  </Th>
+                )}
                 <Th align="center">Actions</Th>
               </tr>
             </thead>
 
+         
             <tbody>
               {loading ? (
-                <tr><td colSpan={99} style={emptyStyle}>Chargement…</td></tr>
+                <tr>
+                  <td colSpan={99} style={emptyStyle}>
+                    Chargement…
+                  </td>
+                </tr>
               ) : sorted.length === 0 ? (
-                <tr><td colSpan={99} style={emptyStyle}>Aucune dépense</td></tr>
+                <tr>
+                  <td colSpan={99} style={emptyStyle}>
+                    Aucune dépense
+                  </td>
+                </tr>
               ) : (
                 sorted.map((r) => (
                   <tr key={r.id} style={trStyle}>
@@ -643,7 +735,11 @@ const payload = {
                     {enabledCols.amount_ht && <td style={tdStyleRight}>{euro(r.amount_ht)}</td>}
                     {enabledCols.structure && <td style={tdStyle}>{r.structure ?? "—"}</td>}
                     {enabledCols.is_paid && (
-                      <td style={tdStyleCenterClickable} onClick={() => void togglePaid(r)} title="Cliquer pour basculer">
+                      <td
+                        style={tdStyleCenterClickable}
+                        onClick={() => void togglePaid(r)}
+                        title="Cliquer pour basculer"
+                      >
                         <PaidPill ok={r.is_paid} />
                       </td>
                     )}
@@ -651,9 +747,25 @@ const payload = {
 
                     <td style={tdStyleCenter}>
                       <div style={{ display: "inline-flex", gap: 8 }}>
-                        <button style={iconBtnStyle} onClick={() => openViewModal(r.id)} title="Voir" type="button">👁</button>
-                        <button style={iconBtnStyle} onClick={() => void openEditModal(r.id)} title="Modifier" type="button">✎</button>
-                        <button style={iconBtnDangerStyle} onClick={() => void deleteExpense(r.id)} title="Supprimer" type="button">🗑</button>
+                        <button style={iconBtnStyle} onClick={() => openViewModal(r.id)} title="Voir" type="button">
+                          👁
+                        </button>
+                        <button
+                          style={iconBtnStyle}
+                          onClick={() => void openEditModal(r.id)}
+                          title="Modifier"
+                          type="button"
+                        >
+                          ✎
+                        </button>
+                        <button
+                          style={iconBtnDangerStyle}
+                          onClick={() => void deleteExpense(r.id)}
+                          title="Supprimer"
+                          type="button"
+                        >
+                          🗑
+                        </button>
                       </div>
                     </td>
                   </tr>
@@ -672,7 +784,9 @@ const payload = {
           <div style={modalStyle} onMouseDown={(e) => e.stopPropagation()}>
             <div style={modalHeaderStyle}>
               <div style={{ fontSize: 18, fontWeight: 950 }}>Voir dépense</div>
-              <button style={softBtnStyle} onClick={closeViewModal} type="button">Fermer</button>
+              <button style={softBtnStyle} onClick={closeViewModal} type="button">
+                Fermer
+              </button>
             </div>
 
             <div style={modalBodyStyle}>
@@ -711,7 +825,9 @@ const payload = {
           <div style={modalStyle} onMouseDown={(e) => e.stopPropagation()}>
             <div style={modalHeaderStyle}>
               <div style={{ fontSize: 18, fontWeight: 950 }}>Créer une dépense</div>
-              <button style={softBtnStyle} onClick={closeCreateModal} type="button">Fermer</button>
+              <button style={softBtnStyle} onClick={closeCreateModal} type="button">
+                Fermer
+              </button>
             </div>
 
             <div style={modalBodyStyle}>
@@ -719,42 +835,73 @@ const payload = {
                 <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12 }}>
                   <div>
                     <div style={labelStyle}>Date *</div>
-                    <input type="date" style={inputStyle} value={form.date} onChange={(e) => setField("date", e.target.value)} />
+                    <input
+                      type="date"
+                      style={inputStyle}
+                      value={form.date}
+                      onChange={(e) => setField("date", e.target.value)}
+                    />
                   </div>
                   {CategoryField}
                 </div>
 
                 <div>
                   <div style={labelStyle}>Désignation *</div>
-                  <input style={inputStyle} value={form.designation} onChange={(e) => setField("designation", e.target.value)} />
+                  <input
+                    style={inputStyle}
+                    value={form.designation}
+                    onChange={(e) => setField("designation", e.target.value)}
+                  />
                 </div>
 
                 <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12 }}>
                   <div>
                     <div style={labelStyle}>Montant HT</div>
-                    <input style={inputStyle} inputMode="decimal" value={form.amount_ht} onChange={(e) => setField("amount_ht", e.target.value)} />
+                    <input
+                      style={inputStyle}
+                      inputMode="decimal"
+                      value={form.amount_ht}
+                      onChange={(e) => setField("amount_ht", e.target.value)}
+                    />
                   </div>
                   <div>
                     <div style={labelStyle}>Montant TTC *</div>
-                    <input style={inputStyle} inputMode="decimal" value={form.amount_ttc} onChange={(e) => setField("amount_ttc", e.target.value)} />
+                    <input
+                      style={inputStyle}
+                      inputMode="decimal"
+                      value={form.amount_ttc}
+                      onChange={(e) => setField("amount_ttc", e.target.value)}
+                    />
                   </div>
                 </div>
 
                 <div>
                   <div style={labelStyle}>Structure</div>
-                  <input style={inputStyle} value={form.structure} onChange={(e) => setField("structure", e.target.value)} />
+                  <input
+                    style={inputStyle}
+                    value={form.structure}
+                    onChange={(e) => setField("structure", e.target.value)}
+                  />
                 </div>
 
                 <label style={{ display: "flex", alignItems: "center", gap: 8, cursor: "pointer" }}>
-                  <input type="checkbox" checked={form.is_paid} onChange={(e) => setField("is_paid", e.target.checked)} />
+                  <input
+                    type="checkbox"
+                    checked={form.is_paid}
+                    onChange={(e) => setField("is_paid", e.target.checked)}
+                  />
                   <span style={{ fontWeight: 900 }}>Réglée</span>
                 </label>
               </div>
             </div>
 
             <div style={modalFooterStyle}>
-              <button style={softBtnStyle} onClick={closeCreateModal} type="button">Annuler</button>
-              <button style={primaryBtnStyle} onClick={() => void saveCreate()} type="button">Créer</button>
+              <button style={softBtnStyle} onClick={closeCreateModal} type="button">
+                Annuler
+              </button>
+              <button style={primaryBtnStyle} onClick={() => void saveCreate()} type="button">
+                Créer
+              </button>
             </div>
           </div>
         </div>
@@ -766,7 +913,9 @@ const payload = {
           <div style={modalStyle} onMouseDown={(e) => e.stopPropagation()}>
             <div style={modalHeaderStyle}>
               <div style={{ fontSize: 18, fontWeight: 950 }}>Modifier dépense</div>
-              <button style={softBtnStyle} onClick={closeEditModal} type="button">Fermer</button>
+              <button style={softBtnStyle} onClick={closeEditModal} type="button">
+                Fermer
+              </button>
             </div>
 
             <div style={modalBodyStyle}>
@@ -774,42 +923,73 @@ const payload = {
                 <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12 }}>
                   <div>
                     <div style={labelStyle}>Date *</div>
-                    <input type="date" style={inputStyle} value={form.date} onChange={(e) => setField("date", e.target.value)} />
+                    <input
+                      type="date"
+                      style={inputStyle}
+                      value={form.date}
+                      onChange={(e) => setField("date", e.target.value)}
+                    />
                   </div>
                   {CategoryField}
                 </div>
 
                 <div>
                   <div style={labelStyle}>Désignation *</div>
-                  <input style={inputStyle} value={form.designation} onChange={(e) => setField("designation", e.target.value)} />
+                  <input
+                    style={inputStyle}
+                    value={form.designation}
+                    onChange={(e) => setField("designation", e.target.value)}
+                  />
                 </div>
 
                 <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12 }}>
                   <div>
                     <div style={labelStyle}>Montant HT</div>
-                    <input style={inputStyle} inputMode="decimal" value={form.amount_ht} onChange={(e) => setField("amount_ht", e.target.value)} />
+                    <input
+                      style={inputStyle}
+                      inputMode="decimal"
+                      value={form.amount_ht}
+                      onChange={(e) => setField("amount_ht", e.target.value)}
+                    />
                   </div>
                   <div>
                     <div style={labelStyle}>Montant TTC *</div>
-                    <input style={inputStyle} inputMode="decimal" value={form.amount_ttc} onChange={(e) => setField("amount_ttc", e.target.value)} />
+                    <input
+                      style={inputStyle}
+                      inputMode="decimal"
+                      value={form.amount_ttc}
+                      onChange={(e) => setField("amount_ttc", e.target.value)}
+                    />
                   </div>
                 </div>
 
                 <div>
                   <div style={labelStyle}>Structure</div>
-                  <input style={inputStyle} value={form.structure} onChange={(e) => setField("structure", e.target.value)} />
+                  <input
+                    style={inputStyle}
+                    value={form.structure}
+                    onChange={(e) => setField("structure", e.target.value)}
+                  />
                 </div>
 
                 <label style={{ display: "flex", alignItems: "center", gap: 8, cursor: "pointer" }}>
-                  <input type="checkbox" checked={form.is_paid} onChange={(e) => setField("is_paid", e.target.checked)} />
+                  <input
+                    type="checkbox"
+                    checked={form.is_paid}
+                    onChange={(e) => setField("is_paid", e.target.checked)}
+                  />
                   <span style={{ fontWeight: 900 }}>Réglée</span>
                 </label>
               </div>
             </div>
 
             <div style={modalFooterStyle}>
-              <button style={softBtnStyle} onClick={closeEditModal} type="button">Annuler</button>
-              <button style={primaryBtnStyle} onClick={() => void saveEdit()} type="button">Enregistrer</button>
+              <button style={softBtnStyle} onClick={closeEditModal} type="button">
+                Annuler
+              </button>
+              <button style={primaryBtnStyle} onClick={() => void saveEdit()} type="button">
+                Enregistrer
+              </button>
             </div>
           </div>
         </div>
@@ -892,7 +1072,13 @@ function PaidPill({ ok }: { ok: boolean }) {
   );
 }
 
-function KpiCard(props: { title: string; value: string; sub?: string; tone: "green" | "orange" | "red" | "blue" | "gray"; icon: string }) {
+function KpiCard(props: {
+  title: string;
+  value: string;
+  sub?: React.ReactNode;
+  tone: "green" | "orange" | "red" | "blue" | "gray";
+  icon: string;
+}) {
   const toneMap: Record<string, { bg: string; icBg: string }> = {
     green: { bg: "rgba(34,197,94,0.08)", icBg: "rgba(34,197,94,1)" },
     orange: { bg: "rgba(245,158,11,0.10)", icBg: "rgba(245,158,11,1)" },
@@ -907,9 +1093,19 @@ function KpiCard(props: { title: string; value: string; sub?: string; tone: "gre
       <div style={{ display: "flex", alignItems: "flex-start", justifyContent: "space-between", gap: 10 }}>
         <div>
           <div style={{ fontSize: 13, fontWeight: 950, opacity: 0.7 }}>{props.title}</div>
-          <div style={{ fontSize: 36, fontWeight: 980, letterSpacing: -0.5, marginTop: 8 }}>{props.value}</div>
-          <div style={{ marginTop: 6, opacity: 0.65, fontWeight: 900 }}>{props.sub ?? " "}</div>
-        </div>
+          <div style={{ fontSize: 30, fontWeight: 980, letterSpacing: -0.5, marginTop: 8 }}>{props.value}</div>
+<div
+  style={{
+    marginTop: 6,
+    opacity: 0.65,
+    fontWeight: 800,
+    fontSize: 11,   // ← taille réduite
+    lineHeight: 1.2
+  }}
+>
+  {props.sub ?? " "}
+</div>       
+ </div>
 
         <div
           style={{
@@ -930,7 +1126,7 @@ function KpiCard(props: { title: string; value: string; sub?: string; tone: "gre
     </div>
   );
 }
-
+// ===== BLOCK 4/4 =====
 /* ================== STYLES ================== */
 const containerStyle: React.CSSProperties = { width: "100%", maxWidth: 1200, margin: "0 auto", padding: 18 };
 
@@ -942,7 +1138,12 @@ const headerRowStyle: React.CSSProperties = {
   flexWrap: "wrap",
 };
 
-const kpiGridStyle: React.CSSProperties = { display: "grid", gridTemplateColumns: "repeat(5, minmax(0, 1fr))", gap: 14, marginTop: 14 };
+const kpiGridStyle: React.CSSProperties = {
+  display: "grid",
+  gridTemplateColumns: "repeat(5, minmax(0, 1fr))",
+  gap: 14,
+  marginTop: 14,
+};
 
 const cardStyleBase: React.CSSProperties = {
   background: "white",
@@ -1020,7 +1221,11 @@ const primaryBtnTop: React.CSSProperties = {
   cursor: "pointer",
 };
 
-const tableWrapStyle: React.CSSProperties = { width: "100%", overflowX: "auto", borderTop: "1px solid rgba(15, 23, 42, 0.10)" };
+const tableWrapStyle: React.CSSProperties = {
+  width: "100%",
+  overflowX: "auto",
+  borderTop: "1px solid rgba(15, 23, 42, 0.10)",
+};
 
 const tableStyle: React.CSSProperties = { width: "100%", minWidth: 980, borderCollapse: "separate", borderSpacing: 0 };
 
@@ -1097,7 +1302,11 @@ const iconBtnStyle: React.CSSProperties = {
   fontWeight: 900,
 };
 
-const iconBtnDangerStyle: React.CSSProperties = { ...iconBtnStyle, border: "1px solid rgba(220, 38, 38, 0.20)", color: "rgb(220,38,38)" };
+const iconBtnDangerStyle: React.CSSProperties = {
+  ...iconBtnStyle,
+  border: "1px solid rgba(220, 38, 38, 0.20)",
+  color: "rgb(220,38,38)",
+};
 
 const overlayStyle: React.CSSProperties = {
   position: "fixed",
@@ -1129,7 +1338,11 @@ const modalHeaderStyle: React.CSSProperties = {
   borderBottom: "1px solid rgba(15, 23, 42, 0.08)",
 };
 
-const modalBodyStyle: React.CSSProperties = { padding: 14, overflow: "auto", maxHeight: "calc(min(76vh, 720px) - 120px)" };
+const modalBodyStyle: React.CSSProperties = {
+  padding: 14,
+  overflow: "auto",
+  maxHeight: "calc(min(76vh, 720px) - 120px)",
+};
 
 const modalFooterStyle: React.CSSProperties = {
   padding: 14,
@@ -1152,4 +1365,10 @@ const columnsPopoverStyle: React.CSSProperties = {
   zIndex: 10,
 };
 
-const checkboxRowStyle: React.CSSProperties = { display: "flex", alignItems: "center", gap: 10, padding: "8px 6px", cursor: "pointer" };
+const checkboxRowStyle: React.CSSProperties = {
+  display: "flex",
+  alignItems: "center",
+  gap: 10,
+  padding: "8px 6px",
+  cursor: "pointer",
+};

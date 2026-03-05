@@ -1193,13 +1193,19 @@ export default function SessionsPage() {
                       {cols.client && <td style={tdStyle}>{r.client_name ?? "—"}</td>}
 
                       {cols.type && (
-                        <td style={tdStyle}>
-                          <StatusPill
-                            tone={r.delivery_type === "subcontract" ? "red" : r.delivery_type === "sous_traitee" ? "orange" : "blue"}
-                            label={r.delivery_type === "subcontract" ? "Sous-traitance" : r.delivery_type === "sous_traitee" ? "Sous-traitée" : "Client direct"}
-                          />
-                        </td>
-                      )}
+  <td style={tdStyle}>
+    <StatusPill
+      tone={r.delivery_type === "subcontract" ? "red" : r.delivery_type === "sous_traitee" ? "orange" : "blue"}
+      label={
+        r.delivery_type === "subcontract"
+          ? (r.subcontractor_user_id === userId ? "Sous-traitant" : "Sous-traitance")
+          : r.delivery_type === "sous_traitee"
+          ? "Sous-traitée"
+          : "Client direct"
+      }
+    />
+  </td>
+)}
 
                       {cols.city && <td style={tdStyle}>{r.location_city ?? "—"}</td>}
                       {cols.duration && <td style={tdStyleCenter}>{durDays > 0 ? `${durDays} j` : "—"}</td>}
