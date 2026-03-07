@@ -5,13 +5,15 @@ import { supabase } from "@/lib/supabaseClient";
 
 type Product = {
   id: string;
+  org_id?: string | null;
+  owner_user_id?: string | null;
   name: string;
   type: "initial" | "recyclage";
   duration_hours: number | null;
   price_intra: number | null;
   price_inter: number | null;
-  learners_total: number;
-  learners_year: number;
+  learners_total: number | null;
+  learners_year: number | null;
   success_rate: number | null;
   objective: string | null;
   competencies: string[];
@@ -26,19 +28,18 @@ export default function ProduitsPage() {
     () => new Intl.NumberFormat("fr-FR", { style: "currency", currency: "EUR" }),
     []
   );
+
   const formatEUR = (v: number | null) => (v == null ? "—" : eur.format(v));
 
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [products, setProducts] = useState<Product[]>([]);
 
-  // modal mode: "create" | "view" | "edit"
   const [open, setOpen] = useState(false);
   const [mode, setMode] = useState<"create" | "view" | "edit">("create");
   const [saving, setSaving] = useState(false);
   const [selected, setSelected] = useState<Product | null>(null);
 
-  // form
   const [name, setName] = useState("");
   const [type, setType] = useState<"initial" | "recyclage">("initial");
   const [durationHours, setDurationHours] = useState("");
@@ -77,39 +78,60 @@ export default function ProduitsPage() {
     setCompetencyInput("");
   }
 
+  async function getCurrentUserId() {
+    const {
+      data: { user },
+      error: userError,
+    } = await supabase.auth.getUser();
+
+    if (userError || !user) {
+      throw new Error(userError?.message ?? "Utilisateur non connecté");
+    }
+
+    return user.id;
+  }
+
   async function loadProducts() {
     setLoading(true);
     setError(null);
 
-    const { data, error } = await supabase
-      .from("products")
-      .select("*")
-      .order("name", { ascending: true });
+    try {
+      const userId = await getCurrentUserId();
 
-    if (error) {
-      setError(error.message);
-      setProducts([]);
-    } else {
+      const { data, error } = await supabase
+        .from("products")
+        .select("*")
+        .eq("owner_user_id", userId)
+        .order("name", { ascending: true });
+
+      if (error) throw error;
+
       setProducts((data ?? []) as Product[]);
+    } catch (e: any) {
+      setProducts([]);
+      setError(e?.message ?? "Erreur de chargement");
+    } finally {
+      setLoading(false);
     }
-
-    setLoading(false);
   }
 
   useEffect(() => {
-    loadProducts();
+    void loadProducts();
   }, []);
 
   function addCompetency() {
     const v = competencyInput.trim();
     if (!v) return;
-    if (competencies.includes(v)) return setCompetencyInput("");
-    setCompetencies([...competencies, v]);
+    if (competencies.includes(v)) {
+      setCompetencyInput("");
+      return;
+    }
+    setCompetencies((prev) => [...prev, v]);
     setCompetencyInput("");
   }
 
   function removeCompetency(v: string) {
-    setCompetencies(competencies.filter((c) => c !== v));
+    setCompetencies((prev) => prev.filter((c) => c !== v));
   }
 
   function openCreate() {
@@ -132,35 +154,39 @@ export default function ProduitsPage() {
     fillFormFromProduct(p);
     setOpen(true);
   }
-
-  async function createProduct() {
+    async function createProduct() {
     if (!name.trim()) return;
 
     setSaving(true);
     setError(null);
 
-    const { error } = await supabase.from("products").insert({
-      name: name.trim(),
-      type,
-      duration_hours: durationHours ? Number(durationHours) : null,
-      price_intra: priceIntra ? Number(priceIntra) : null,
-      price_inter: priceInter ? Number(priceInter) : null,
-      success_rate: successRate ? Number(successRate) : null,
-      objective: objective || null,
-      competencies,
-      certificate_name: certificateName || null,
-    });
+    try {
+      const userId = await getCurrentUserId();
 
-    if (error) {
-      setError(error.message);
+      const payload = {
+        name: name.trim(),
+        type,
+        duration_hours: durationHours ? Number(durationHours) : null,
+        price_intra: priceIntra ? Number(priceIntra) : null,
+        price_inter: priceInter ? Number(priceInter) : null,
+        success_rate: successRate ? Number(successRate) : null,
+        objective: objective.trim() ? objective.trim() : null,
+        competencies,
+        certificate_name: certificateName.trim() ? certificateName.trim() : null,
+        owner_user_id: userId,
+      };
+
+      const { error } = await supabase.from("products").insert(payload);
+      if (error) throw error;
+
+      setOpen(false);
+      resetForm();
+      await loadProducts();
+    } catch (e: any) {
+      setError(e?.message ?? "Erreur lors de la création");
+    } finally {
       setSaving(false);
-      return;
     }
-
-    setSaving(false);
-    setOpen(false);
-    resetForm();
-    await loadProducts();
   }
 
   async function updateProduct() {
@@ -170,60 +196,75 @@ export default function ProduitsPage() {
     setSaving(true);
     setError(null);
 
-    const { error } = await supabase
-      .from("products")
-      .update({
+    try {
+      const userId = await getCurrentUserId();
+
+      const payload = {
         name: name.trim(),
         type,
         duration_hours: durationHours ? Number(durationHours) : null,
         price_intra: priceIntra ? Number(priceIntra) : null,
         price_inter: priceInter ? Number(priceInter) : null,
         success_rate: successRate ? Number(successRate) : null,
-        objective: objective || null,
+        objective: objective.trim() ? objective.trim() : null,
         competencies,
-        certificate_name: certificateName || null,
-      })
-      .eq("id", selected.id);
+        certificate_name: certificateName.trim() ? certificateName.trim() : null,
+        owner_user_id: userId,
+      };
 
-    if (error) {
-      setError(error.message);
+      const { error } = await supabase
+        .from("products")
+        .update(payload)
+        .eq("id", selected.id)
+        .eq("owner_user_id", userId);
+
+      if (error) throw error;
+
+      setOpen(false);
+      setSelected(null);
+      resetForm();
+      await loadProducts();
+    } catch (e: any) {
+      setError(e?.message ?? "Erreur lors de la mise à jour");
+    } finally {
       setSaving(false);
-      return;
     }
-
-    setSaving(false);
-    setOpen(false);
-    setSelected(null);
-    resetForm();
-    await loadProducts();
   }
 
   async function deleteProduct(p: Product) {
-    const ok = confirm(`Supprimer "${p.name}" ?`);
-    if (!ok) return;
+  const ok = window.confirm(`Supprimer le produit "${p.name}" ?`);
+  if (!ok) return;
 
-    setError(null);
+  setSaving(true);
+  setError(null);
 
-    const { error } = await supabase.from("products").delete().eq("id", p.id);
-    if (error) {
-      setError(error.message);
-      return;
-    }
+  try {
+    const { error } = await supabase
+      .from("products")
+      .delete()
+      .eq("id", p.id);
 
-    // si la modal est ouverte sur ce produit, on ferme
+    if (error) throw error;
+
     if (selected?.id === p.id) {
       setOpen(false);
       setSelected(null);
+      resetForm();
     }
 
     await loadProducts();
+  } catch (e: any) {
+    setError(e?.message ?? "Erreur lors de la suppression");
+  } finally {
+    setSaving(false);
   }
+}
 
   const readOnly = mode === "view";
 
   return (
     <div className="p-6">
-      <div className="flex items-center justify-between">
+      <div className="flex items-center justify-between gap-4">
         <div>
           <h1 className="text-2xl font-semibold">Produits & services</h1>
           <p className="mt-1 text-sm text-gray-500">Année en cours : {year}</p>
@@ -232,13 +273,16 @@ export default function ProduitsPage() {
         <button
           className="rounded-xl border px-5 py-3 text-sm font-medium hover:bg-gray-50"
           onClick={openCreate}
+          type="button"
         >
           + Nouveau produit
         </button>
       </div>
 
       {error && (
-        <div className="mt-4 rounded-md border p-3 text-sm">Erreur : {error}</div>
+        <div className="mt-4 rounded-md border p-3 text-sm">
+          Erreur : {error}
+        </div>
       )}
 
       <div className="mt-6 overflow-hidden rounded-2xl border bg-white">
@@ -256,8 +300,7 @@ export default function ProduitsPage() {
               <th className="px-6 py-4 text-right">Actions</th>
             </tr>
           </thead>
-
-          <tbody>
+                    <tbody>
             {loading ? (
               <tr>
                 <td colSpan={9} className="px-6 py-6 text-center text-gray-500">
@@ -286,7 +329,6 @@ export default function ProduitsPage() {
                   <td className="px-6 py-4">
                     {p.success_rate == null ? "—" : p.success_rate}
                   </td>
-
                   <td className="px-6 py-4 text-right">
                     <div className="flex justify-end gap-2">
                       <button
@@ -311,7 +353,7 @@ export default function ProduitsPage() {
                         type="button"
                         className="rounded-md border p-2 text-red-600 hover:bg-gray-50"
                         title="Supprimer"
-                        onClick={() => deleteProduct(p)}
+                        onClick={() => void deleteProduct(p)}
                       >
                         🗑️
                       </button>
@@ -337,9 +379,10 @@ export default function ProduitsPage() {
                 {mode === "create"
                   ? "Nouveau produit"
                   : mode === "view"
-                  ? "Voir produit"
-                  : "Modifier produit"}
+                    ? "Voir produit"
+                    : "Modifier produit"}
               </h2>
+
               <button
                 type="button"
                 className="text-sm"
@@ -366,9 +409,7 @@ export default function ProduitsPage() {
                 <select
                   className="mt-1 w-full rounded-md border px-3 py-2 text-sm"
                   value={type}
-                  onChange={(e) =>
-                    setType(e.target.value as "initial" | "recyclage")
-                  }
+                  onChange={(e) => setType(e.target.value as "initial" | "recyclage")}
                   disabled={readOnly}
                 >
                   <option value="initial">initial</option>
@@ -419,8 +460,7 @@ export default function ProduitsPage() {
                   disabled={readOnly}
                 />
               </div>
-
-              <div>
+                            <div>
                 <label className="text-sm font-medium">Nom du certificat</label>
                 <input
                   className="mt-1 w-full rounded-md border px-3 py-2 text-sm"
@@ -431,7 +471,7 @@ export default function ProduitsPage() {
               </div>
 
               <div className="md:col-span-2">
-                <label className="text-sm font-medium">Objectif (masqué)</label>
+                <label className="text-sm font-medium">Objectif</label>
                 <textarea
                   className="mt-1 w-full rounded-md border px-3 py-2 text-sm"
                   value={objective}
@@ -442,7 +482,7 @@ export default function ProduitsPage() {
               </div>
 
               <div className="md:col-span-2">
-                <label className="text-sm font-medium">Compétences (masqué)</label>
+                <label className="text-sm font-medium">Compétences</label>
 
                 {!readOnly && (
                   <div className="mt-2 flex gap-2">
@@ -503,7 +543,7 @@ export default function ProduitsPage() {
                 <button
                   type="button"
                   className="rounded-md border px-3 py-2 text-sm hover:bg-gray-50 disabled:opacity-50"
-                  onClick={createProduct}
+                  onClick={() => void createProduct()}
                   disabled={saving || !name.trim()}
                 >
                   {saving ? "Création…" : "Créer"}
@@ -514,7 +554,7 @@ export default function ProduitsPage() {
                 <button
                   type="button"
                   className="rounded-md border px-3 py-2 text-sm hover:bg-gray-50 disabled:opacity-50"
-                  onClick={updateProduct}
+                  onClick={() => void updateProduct()}
                   disabled={saving || !name.trim()}
                 >
                   {saving ? "Enregistrement…" : "Enregistrer"}

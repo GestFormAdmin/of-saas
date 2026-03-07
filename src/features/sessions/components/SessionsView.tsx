@@ -71,11 +71,11 @@ type LearnerRow = {
   nom?: string | null;
   email?: string | null;
   mail?: string | null;
+  birth_date?: string | null;
   last_name?: string | null;
   first_name?: string | null;
   [k: string]: any;
 };
-
 /* ================== HELPERS ================== */
 function errorToMessage(err: any) {
   if (!err) return "Erreur inconnue";
@@ -1014,46 +1014,49 @@ export default function SessionsPage() {
     await fetchSessions();
   }
 
-  async function loadLearnersForSession(sessionId: string) {
-    setViewLearnersLoading(true);
-    setViewLearnersError(null);
+ async function loadLearnersForSession(sessionId: string) {
+  setViewLearnersLoading(true);
+  setViewLearnersError(null);
 
-    try {
-      const { data: links, error: linkErr } = await supabase.from("apprenant_sessions").select("apprenant_id").eq("session_id", sessionId);
+  try {
+    const { data: links, error: linkErr } = await supabase
+      .from("apprenant_sessions")
+      .select("apprenant_id")
+      .eq("session_id", sessionId);
 
-      if (linkErr) {
-        setViewLearners([]);
-        setViewLearnersError(errorToMessage(linkErr));
-        return;
-      }
-
-      const apprenantIds = (links ?? []).map((x: any) => x.apprenant_id).filter(Boolean);
-
-      if (apprenantIds.length === 0) {
-        setViewLearners([]);
-        return;
-      }
-
-      const { data: apprenants, error: apprErr } = await supabase
-        .from("apprenants")
-        .select("id, first_name, last_name, email")
-        .in("id", apprenantIds)
-        .order("last_name");
-
-      if (apprErr) {
-        setViewLearners([]);
-        setViewLearnersError(errorToMessage(apprErr));
-        return;
-      }
-
-      setViewLearners((apprenants ?? []) as LearnerRow[]);
-    } catch (e: any) {
+    if (linkErr) {
       setViewLearners([]);
-      setViewLearnersError(errorToMessage(e));
-    } finally {
-      setViewLearnersLoading(false);
+      setViewLearnersError(errorToMessage(linkErr));
+      return;
     }
+
+    const apprenantIds = (links ?? []).map((x: any) => x.apprenant_id).filter(Boolean);
+
+    if (apprenantIds.length === 0) {
+      setViewLearners([]);
+      return;
+    }
+
+    const { data: apprenants, error: apprErr } = await supabase
+      .from("apprenants")
+      .select("id, first_name, last_name, birth_date, email")
+      .in("id", apprenantIds)
+      .order("last_name");
+
+    if (apprErr) {
+      setViewLearners([]);
+      setViewLearnersError(errorToMessage(apprErr));
+      return;
+    }
+
+    setViewLearners((apprenants ?? []) as LearnerRow[]);
+  } catch (e: any) {
+    setViewLearners([]);
+    setViewLearnersError(errorToMessage(e));
+  } finally {
+    setViewLearnersLoading(false);
   }
+}
 
   function TableCard(props: { title: string; rows: SessionRow[] }) {
     const list = props.rows;
@@ -1507,20 +1510,23 @@ export default function SessionsPage() {
                   ) : (
                     <div style={{ width: "100%", overflowX: "auto" }}>
                       <table style={{ width: "100%", borderCollapse: "separate", borderSpacing: 0, minWidth: 520 }}>
-                        <thead>
-                          <tr>
-                            <th style={thStyle}>Nom</th>
-                            <th style={thStyle}>Email</th>
-                          </tr>
-                        </thead>
-                        <tbody>
-                          {viewLearners.map((l) => (
-                            <tr key={l.id}>
-                              <td style={tdStyleStrong}>{getLearnerName(l)}</td>
-                              <td style={tdStyle}>{getLearnerEmail(l) || "—"}</td>
-                            </tr>
-                          ))}
-                        </tbody>
+                        
+                       <thead>
+  <tr>
+    <th style={thStyle}>Nom</th>
+    <th style={thStyle}>Date de naissance</th>
+    <th style={thStyle}>Email</th>
+  </tr>
+</thead>
+                       <tbody>
+  {viewLearners.map((l) => (
+    <tr key={l.id}>
+      <td style={tdStyleStrong}>{getLearnerName(l)}</td>
+      <td style={tdStyle}>{toFrDate(l.birth_date ?? null)}</td>
+      <td style={tdStyle}>{getLearnerEmail(l) || "—"}</td>
+    </tr>
+  ))}
+</tbody>
                       </table>
                     </div>
                   )}
