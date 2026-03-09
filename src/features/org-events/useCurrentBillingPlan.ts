@@ -1,45 +1,49 @@
-'use client';
+"use client";
 
-import { useEffect, useMemo, useState } from 'react';
-import { createBrowserClient } from '@/lib/supabase/browser';
+import { useEffect, useState } from "react";
+import { supabase } from "@/lib/supabase/browser";
 
 export type BillingPlan = {
   org_id: string;
-  billing_year: number;
-  apprenants_n_1: number;
-  plan_code: 'free' | 'pro' | 'business' | 'scale' | 'enterprise' | 'custom';
-  price_eur: number;
-  calculated_at: string;
+  plan_key: string | null;
+  status: string | null;
+  interval: string | null;
+  current_period_end: string | null;
 };
 
 export function useCurrentBillingPlan() {
-  // ✅ client stable (évite rerender + deps cassées)
-  const supabase = useMemo(() => createBrowserClient(), []);
-
   const [data, setData] = useState<BillingPlan | null>(null);
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
     let alive = true;
 
-    (async () => {
-      const { data, error } = await supabase.rpc('get_my_current_org_billing_plan');
+    async function run() {
+      setLoading(true);
+
+      const { data, error } = await supabase
+        .from("org_billing")
+        .select("org_id,plan_key,status,interval,current_period_end")
+        .maybeSingle();
 
       if (!alive) return;
 
-      if (!error && Array.isArray(data) && data[0]) {
-        setData(data[0] as BillingPlan);
-      } else {
+      if (error) {
         setData(null);
+        setLoading(false);
+        return;
       }
 
+      setData((data as BillingPlan | null) ?? null);
       setLoading(false);
-    })();
+    }
+
+    void run();
 
     return () => {
       alive = false;
     };
-  }, [supabase]);
+  }, []);
 
   return { data, loading };
 }

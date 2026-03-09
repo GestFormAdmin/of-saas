@@ -13,28 +13,30 @@ export default function ExportPage() {
   const [error, setError] = React.useState<string | null>(null);
   const [sessionInfo, setSessionInfo] = React.useState<string>("");
 
-  /* ======================
-     SESSION CHECK
-     ====================== */
   React.useEffect(() => {
-    (async () => {
+    async function checkSession() {
+      if (!supabase) {
+        setSessionInfo("session NULL (client supabase introuvable)");
+        return;
+      }
+
       const { data, error } = await supabase.auth.getSession();
       if (error) {
         setSessionInfo(`session error: ${error.message}`);
         return;
       }
+
       const s = data.session;
       setSessionInfo(
         s?.user
           ? `session OK: ${s.user.email ?? s.user.id}`
           : "session NULL (pas connecté supabase)"
       );
-    })();
+    }
+
+    void checkSession();
   }, []);
 
-  /* ======================
-     HELPERS
-     ====================== */
   function downloadBlob(blob: Blob, filename: string) {
     const url = URL.createObjectURL(blob);
     const a = document.createElement("a");
@@ -46,10 +48,11 @@ export default function ExportPage() {
     URL.revokeObjectURL(url);
   }
 
-  /* ======================
-     RGPD EXPORT
-     ====================== */
   async function fetchRgpd(): Promise<RgpdPayload> {
+    if (!supabase) {
+      throw new Error("Client Supabase introuvable");
+    }
+
     const { data: sessionData } = await supabase.auth.getSession();
     if (!sessionData.session) {
       throw new Error("Session Supabase absente (reconnecte-toi)");
@@ -93,7 +96,6 @@ export default function ExportPage() {
       const stamp = new Date().toISOString().slice(0, 10);
       const wb = new ExcelJS.Workbook();
 
-      // Résumé clé/valeur
       const ws = wb.addWorksheet("RGPD");
       ws.addRow(["key", "value"]).font = { bold: true };
 
@@ -101,7 +103,6 @@ export default function ExportPage() {
         ws.addRow([k, typeof v === "string" ? v : JSON.stringify(v)]);
       }
 
-      // Sheets par tableaux
       for (const [k, v] of Object.entries(payload)) {
         if (Array.isArray(v) && v.length && typeof v[0] === "object") {
           const sheet = wb.addWorksheet(k.slice(0, 31));
@@ -131,21 +132,31 @@ export default function ExportPage() {
     }
   }
 
-  /* ======================
-     EXPORT COMPLET (NON RGPD)
-     ====================== */
   async function exportFull(format: "xlsx" | "csv") {
     try {
       setError(null);
       setLoading(format === "xlsx" ? "full-xlsx" : "full-csv");
 
-const { data: sessionData } = await supabase.auth.getSession();
-const token = sessionData.session?.access_token;
-if (!token) throw new Error("Session Supabase absente (reconnecte-toi)");
+      if (!supabase) {
+        throw new Error("Client Supabase introuvable");
+      }
 
-const res = await fetch(`/api/export?format=${format}`, {
-  headers: { Authorization: `Bearer ${token}` },
-});
+      const { data: sessionData } = await supabase.auth.getSession();
+      const token = sessionData.session?.access_token;
+      if (!token) throw new Error("Session Supabase absente (reconnecte-toi)");
+
+      const res = await fetch(`/api/export?format=${format}`, {
+        headers: { Authorization: `Bearer ${token}` },
+      });
+
+      if (!res.ok) {
+        let message = "Erreur export complet";
+        try {
+          const j = await res.json();
+          message = j?.error ?? message;
+        } catch {}
+        throw new Error(message);
+      }
 
       const stamp = new Date().toISOString().slice(0, 10);
       const blob = await res.blob();
@@ -163,9 +174,6 @@ const res = await fetch(`/api/export?format=${format}`, {
     }
   }
 
-  /* ======================
-     UI
-     ====================== */
   return (
     <div style={{ maxWidth: 720 }}>
       <h1 style={{ fontSize: 20, fontWeight: 700 }}>Exports des données</h1>
@@ -188,7 +196,6 @@ const res = await fetch(`/api/export?format=${format}`, {
         </div>
       )}
 
-      {/* ===== RGPD ===== */}
       <div style={{ marginTop: 20 }}>
         <h2 style={{ fontWeight: 700 }}>Export RGPD</h2>
 
@@ -203,7 +210,6 @@ const res = await fetch(`/api/export?format=${format}`, {
         </div>
       </div>
 
-      {/* ===== EXPORT COMPLET ===== */}
       <div style={{ marginTop: 32 }}>
         <h2 style={{ fontWeight: 700 }}>Export complet (hors RGPD)</h2>
         <p style={{ fontSize: 12, opacity: 0.75 }}>

@@ -31,13 +31,24 @@ export default function DocumentsViergesPage() {
   const [file, setFile] = useState<File | null>(null);
   const [uploading, setUploading] = useState(false);
 
-  // ================= LOAD LIST =================
+  const getToken = async () => {
+    if (!supabase) return null;
+    const { data: sess } = await supabase.auth.getSession();
+    return sess?.session?.access_token ?? null;
+  };
+
   const load = async () => {
+    if (!supabase) {
+      setErr("Client Supabase introuvable");
+      setRows([]);
+      setLoading(false);
+      return;
+    }
+
     setLoading(true);
     setErr(null);
 
-    const { data: sess } = await supabase.auth.getSession();
-    const token = sess?.session?.access_token;
+    const token = await getToken();
 
     if (!token) {
       setErr("Session expirée, reconnecte-toi.");
@@ -67,16 +78,15 @@ export default function DocumentsViergesPage() {
     void load();
   }, []);
 
-  // ================= UPLOAD =================
   const upload = async () => {
     if (!file) return alert("Choisis un fichier .docx");
     if (!docType.trim()) return alert("Type requis");
+    if (!supabase) return alert("Client Supabase introuvable");
 
     setUploading(true);
     setErr(null);
 
-    const { data: sess } = await supabase.auth.getSession();
-    const token = sess?.session?.access_token;
+    const token = await getToken();
 
     if (!token) {
       setUploading(false);
@@ -109,10 +119,10 @@ export default function DocumentsViergesPage() {
     await load();
   };
 
-  // ================= VIEW =================
   const view = async (id: string) => {
-    const { data: sess } = await supabase.auth.getSession();
-    const token = sess?.session?.access_token;
+    if (!supabase) return alert("Client Supabase introuvable");
+
+    const token = await getToken();
     if (!token) return alert("Session expirée, reconnecte-toi.");
 
     const res = await fetch("/api/admin/document-templates/signed-url", {
@@ -130,13 +140,12 @@ export default function DocumentsViergesPage() {
     window.open(j.url, "_blank");
   };
 
-  // ================= DELETE =================
   const del = async (id: string) => {
     const ok = window.confirm("Supprimer ce document ?");
     if (!ok) return;
+    if (!supabase) return alert("Client Supabase introuvable");
 
-    const { data: sess } = await supabase.auth.getSession();
-    const token = sess?.session?.access_token;
+    const token = await getToken();
     if (!token) return alert("Session expirée, reconnecte-toi.");
 
     const res = await fetch("/api/admin/document-templates/delete", {
@@ -173,7 +182,6 @@ export default function DocumentsViergesPage() {
           </button>
         </div>
 
-        {/* IMPORT */}
         <div className="rounded-2xl border bg-white p-4">
           <div className="mb-3 text-sm font-bold">Importer un document</div>
 
@@ -193,7 +201,9 @@ export default function DocumentsViergesPage() {
             </div>
 
             <div className="col-span-6">
-              <div className="mb-1 text-xs font-semibold text-muted-foreground">Fichier .docx</div>
+              <div className="mb-1 text-xs font-semibold text-muted-foreground">
+                Fichier .docx
+              </div>
               <input
                 id="fileInput"
                 type="file"
@@ -221,7 +231,6 @@ export default function DocumentsViergesPage() {
           )}
         </div>
 
-        {/* LISTE */}
         <div className="rounded-2xl border bg-white">
           <div className="border-b px-4 py-3 text-sm font-bold">Liste</div>
 

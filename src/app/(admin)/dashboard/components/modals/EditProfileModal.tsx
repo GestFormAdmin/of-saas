@@ -29,6 +29,20 @@ export default function EditProfileModal({
     setJobTitle(initial?.job_title ?? "");
   }, [initial, open]);
 
+  async function handleSave() {
+    if (!supabase) return;
+
+    await supabase.from("profiles").upsert({
+      id: userId,
+      first_name: firstName,
+      last_name: lastName,
+      phone,
+      job_title: jobTitle,
+    });
+
+    onClose();
+  }
+
   return (
     <Modal open={open} onClose={onClose} title="Modifier mes informations">
       <div className="space-y-3">
@@ -58,18 +72,8 @@ export default function EditProfileModal({
           <Button variant="secondary" onClick={onClose}>
             Annuler
           </Button>
-          <Button
-            onClick={async () => {
-              await supabase.from("profiles").upsert({
-                id: userId,
-                first_name: firstName,
-                last_name: lastName,
-                phone,
-                job_title: jobTitle,
-              });
-              onClose();
-            }}
-          >
+
+          <Button onClick={handleSave}>
             Enregistrer
           </Button>
         </div>

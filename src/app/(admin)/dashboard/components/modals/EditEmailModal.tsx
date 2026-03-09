@@ -14,6 +14,7 @@ export default function EditEmailModal({
   onClose: () => void;
 }) {
   const [email, setEmail] = useState("");
+  const [saving, setSaving] = useState(false);
 
   return (
     <Modal open={open} onClose={onClose} title="Modifier l’email">
@@ -28,16 +29,22 @@ export default function EditEmailModal({
         </div>
 
         <div className="flex justify-end gap-2 pt-2">
-          <Button variant="secondary" onClick={onClose}>
+          <Button variant="secondary" onClick={onClose} disabled={saving}>
             Annuler
           </Button>
           <Button
+            disabled={saving}
             onClick={async () => {
-              await supabase.auth.updateUser({ email });
+              const sb = supabase;
+              if (!sb) return;
+
+              setSaving(true);
+              await sb.auth.updateUser({ email });
+              setSaving(false);
               onClose();
             }}
           >
-            Enregistrer
+            {saving ? "Enregistrement..." : "Enregistrer"}
           </Button>
         </div>
       </div>

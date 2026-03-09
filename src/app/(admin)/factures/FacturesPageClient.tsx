@@ -587,15 +587,26 @@ export default function FacturesDevisPage() {
     }
   }
 
-  async function fetchClients() {
-    const { data, error } = await supabase.from(CLIENTS_TABLE).select("id,name").order("name", { ascending: true });
-    if (error) {
-      setPageError(error.message);
-      setClients([]);
-      return;
-    }
-    setClients((data ?? []) as ClientRow[]);
+ async function fetchClients() {
+  if (!supabase) {
+    setPageError("Client Supabase introuvable");
+    setClients([]);
+    return;
   }
+
+  const { data, error } = await supabase
+    .from(CLIENTS_TABLE)
+    .select("id,name")
+    .order("name", { ascending: true });
+
+  if (error) {
+    setPageError(error.message);
+    setClients([]);
+    return;
+  }
+
+  setClients(data ?? []);
+}
 
   async function fetchProducts() {
     const { data, error } = await supabase.from(PRODUCTS_TABLE).select("*").order("name", { ascending: true });

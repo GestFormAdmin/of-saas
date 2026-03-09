@@ -28,8 +28,8 @@ const euro = (v: number) =>
 const sum = (rows: PieRow[]) => rows.reduce((a, r) => a + (Number(r.value) || 0), 0);
 const colorAt = (i: number) => `hsl(${(i * 47) % 360} 75% 45%)`;
 
-const CA_COLOR = "#16a34a"; // vert
-const EXP_COLOR = "#dc2626"; // rouge
+const CA_COLOR = "#16a34a";
+const EXP_COLOR = "#dc2626";
 
 const safeArr = (x: any) => (Array.isArray(x) ? x : []);
 
@@ -102,7 +102,9 @@ function Card({
 
 function Empty({ text }: { text: string }) {
   return (
-    <div className="rounded-xl border border-dashed p-4 text-sm text-muted-foreground">{text}</div>
+    <div className="rounded-xl border border-dashed p-4 text-sm text-muted-foreground">
+      {text}
+    </div>
   );
 }
 
@@ -128,7 +130,20 @@ export default function DashboardChartsClient() {
   useEffect(() => {
     let alive = true;
 
-    (async () => {
+    async function loadCharts() {
+      if (!supabase) {
+        if (!alive) return;
+        setRevByClient([]);
+        setExpByCat([]);
+        setLearnersByProduct([]);
+        setSessionsByType([]);
+        setCashflowByYear([]);
+        setHasAnyData(false);
+        setRpcError("Supabase client introuvable");
+        setLoading(false);
+        return;
+      }
+
       setLoading(true);
       setRpcError(null);
 
@@ -162,9 +177,7 @@ export default function DashboardChartsClient() {
           p_year: yearFor(learnersScope, currentYear),
         }),
         supabase.rpc("dashboard_sessions_by_type", { p_org_id: orgId }),
-        // ✅ CA encaissé / année
         supabase.rpc("dashboard_revenue_by_year", { p_org_id: orgId }),
-        // ✅ dépenses réglées / année
         supabase.rpc("dashboard_expenses_by_year", { p_org_id: orgId }),
       ]);
 
@@ -178,6 +191,7 @@ export default function DashboardChartsClient() {
         d1.error?.message ||
         d2.error?.message ||
         null;
+
       if (err) setRpcError(err);
 
       const ra = safeArr(a.data);
@@ -228,20 +242,24 @@ export default function DashboardChartsClient() {
       }));
 
       const map = new Map<number, CashflowRow>();
+
       for (const r of revRows) {
         if (!Number.isFinite(r.year)) continue;
         map.set(r.year, { year: r.year, revenue: r.value, expenses: 0 });
       }
+
       for (const e of expRows) {
         if (!Number.isFinite(e.year)) continue;
         const prev = map.get(e.year) ?? { year: e.year, revenue: 0, expenses: 0 };
         prev.expenses = e.value;
         map.set(e.year, prev);
       }
-      setCashflowByYear(Array.from(map.values()).sort((x, y) => x.year - y.year));
 
+      setCashflowByYear(Array.from(map.values()).sort((x, y) => x.year - y.year));
       setLoading(false);
-    })();
+    }
+
+    void loadCharts();
 
     return () => {
       alive = false;
@@ -253,7 +271,6 @@ export default function DashboardChartsClient() {
   const learnersTotal = useMemo(() => sum(learnersByProduct), [learnersByProduct]);
   const sessionsTotal = useMemo(() => sum(sessionsByType), [sessionsByType]);
 
-  // ✅ Masquer tout si aucun graphique pour ce profil
   if (!loading && !rpcError && !hasAnyData) {
     return (
       <div className="rounded-2xl border border-dashed p-6 text-sm text-muted-foreground">
@@ -262,7 +279,6 @@ export default function DashboardChartsClient() {
     );
   }
 
-  // ✅ Masquer chaque bloc individuellement si vide
   const showRev = !loading && revByClient.length > 0;
   const showSessions = !loading && sessionsByType.length > 0;
   const showExp = !loading && expByCat.length > 0;
@@ -278,7 +294,6 @@ export default function DashboardChartsClient() {
         </div>
       ) : null}
 
-      {/* ================== RECETTES (encaissées) ================== */}
       {showRev && (
         <Card
           title="Répartition des recettes par clients"
@@ -291,7 +306,6 @@ export default function DashboardChartsClient() {
             <Empty text="Aucune donnée (dashboard_revenue_by_client)." />
           ) : (
             <div className="flex gap-6">
-              {/* PIE */}
               <div className="h-[320px] w-[380px]">
                 <ResponsiveContainer width="100%" height="100%">
                   <PieChart>
@@ -311,7 +325,6 @@ export default function DashboardChartsClient() {
                 </ResponsiveContainer>
               </div>
 
-              {/* LEGEND */}
               <div className="flex-1 space-y-2">
                 {revByClient.map((r, i) => (
                   <div key={i} className="flex items-center gap-3 text-sm">
@@ -329,11 +342,9 @@ export default function DashboardChartsClient() {
         </Card>
       )}
 
-      {/* ================== SESSIONS (types) ================== */}
       {showSessions && (
         <Card title="Répartition des sessions" subtitle={`Total : ${Math.round(sessionsTotal)}`}>
           <div className="flex gap-6">
-            {/* PIE */}
             <div className="h-[320px] w-[380px]">
               <ResponsiveContainer width="100%" height="100%">
                 <PieChart>
@@ -353,7 +364,6 @@ export default function DashboardChartsClient() {
               </ResponsiveContainer>
             </div>
 
-            {/* LEGEND */}
             <div className="flex-1 space-y-2">
               {sessionsByType.map((r, i) => (
                 <div key={i} className="flex items-center gap-3 text-sm">
@@ -370,7 +380,6 @@ export default function DashboardChartsClient() {
         </Card>
       )}
 
-      {/* ================== DEPENSES ================== */}
       {showExp && (
         <Card
           title="Répartition des dépenses par catégorie"
@@ -383,7 +392,6 @@ export default function DashboardChartsClient() {
             <Empty text="Aucune donnée (dashboard_expenses_by_category)." />
           ) : (
             <div className="flex gap-6">
-              {/* PIE */}
               <div className="h-[320px] w-[380px]">
                 <ResponsiveContainer width="100%" height="100%">
                   <PieChart>
@@ -403,7 +411,6 @@ export default function DashboardChartsClient() {
                 </ResponsiveContainer>
               </div>
 
-              {/* LEGEND */}
               <div className="flex-1 space-y-2">
                 {expByCat.map((r, i) => (
                   <div key={i} className="flex items-center gap-3 text-sm">
@@ -418,12 +425,17 @@ export default function DashboardChartsClient() {
         </Card>
       )}
 
-      {/* ================== APPRENANTS PAR FORMATION ================== */}
       {showLearners && (
         <Card
           title="Répartition des apprenants par formations"
           subtitle={`${scopeLabel(learnersScope, currentYear)} — Total : ${Math.round(learnersTotal)}`}
-          actions={<ToggleScope yearLabel={currentYear} value={learnersScope} onChange={setLearnersScope} />}
+          actions={
+            <ToggleScope
+              yearLabel={currentYear}
+              value={learnersScope}
+              onChange={setLearnersScope}
+            />
+          }
         >
           {loading ? (
             <Empty text="Chargement…" />
@@ -431,7 +443,6 @@ export default function DashboardChartsClient() {
             <Empty text="Aucune donnée (dashboard_learners_by_product)." />
           ) : (
             <div className="flex gap-6">
-              {/* PIE */}
               <div className="h-[320px] w-[380px]">
                 <ResponsiveContainer width="100%" height="100%">
                   <PieChart>
@@ -451,7 +462,6 @@ export default function DashboardChartsClient() {
                 </ResponsiveContainer>
               </div>
 
-              {/* LEGEND */}
               <div className="flex-1 space-y-2">
                 {learnersByProduct.map((r, i) => (
                   <div key={i} className="flex items-center gap-3 text-sm">
@@ -469,7 +479,6 @@ export default function DashboardChartsClient() {
         </Card>
       )}
 
-      {/* ================== CA encaissé vs Dépenses réglées (par années) ================== */}
       {showCashflow && (
         <Card title="Évolution du CA encaissé et des dépenses réglées par années">
           {loading ? (
@@ -490,8 +499,20 @@ export default function DashboardChartsClient() {
                     ]}
                     labelFormatter={(l: any) => `Année ${l}`}
                   />
-                  <Line type="monotone" dataKey="revenue" stroke={CA_COLOR} strokeWidth={3} dot={false} />
-                  <Line type="monotone" dataKey="expenses" stroke={EXP_COLOR} strokeWidth={3} dot={false} />
+                  <Line
+                    type="monotone"
+                    dataKey="revenue"
+                    stroke={CA_COLOR}
+                    strokeWidth={3}
+                    dot={false}
+                  />
+                  <Line
+                    type="monotone"
+                    dataKey="expenses"
+                    stroke={EXP_COLOR}
+                    strokeWidth={3}
+                    dot={false}
+                  />
                 </LineChart>
               </ResponsiveContainer>
             </div>

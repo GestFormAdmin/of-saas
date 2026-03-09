@@ -395,6 +395,13 @@ export default function SubscribersApplicationTableClient({ rows }: { rows: Subs
     if (!ok) return;
 
     setBusyUserId(r.user_id);
+
+    if (!supabase) {
+      setBusyUserId(null);
+      alert('Supabase non configuré');
+      return;
+    }
+
     const { error } = await supabase.rpc('admin_revoke_user', { p_user_id: r.user_id });
     setBusyUserId(null);
 
@@ -429,6 +436,13 @@ export default function SubscribersApplicationTableClient({ rows }: { rows: Subs
     if (!ok) return;
 
     setBusyUserId(r.user_id);
+
+    if (!supabase) {
+      setBusyUserId(null);
+      alert('Supabase non configuré');
+      return;
+    }
+
     const { data, error } = await supabase.rpc('admin_toggle_block_user', { p_user_id: r.user_id });
     setBusyUserId(null);
 

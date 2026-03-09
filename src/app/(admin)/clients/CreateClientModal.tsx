@@ -9,7 +9,7 @@ type Props = {
   open: boolean;
   onClose: () => void;
   onSaved: () => void;
-  onSavedAndOpenClients?: () => void; // optionnel
+  onSavedAndOpenClients?: () => void;
 };
 
 export default function CreateClientModal({ open, onClose, onSaved, onSavedAndOpenClients }: Props) {
@@ -41,33 +41,44 @@ export default function CreateClientModal({ open, onClose, onSaved, onSavedAndOp
       return;
     }
 
-    setSaving(true);
-    setErr(null);
-
-    const payload = {
-      name: name.trim(),
-      address_city: city.trim() || null,
-      email: email.trim() || null,
-      phone: phone.trim() || null,
-      address_street: street.trim() || null,
-      address_postal_code: zipCode.trim() || null,
-    };
-
-    const { error } = await supabase.from("clients").insert(payload);
-
-    if (error) {
-      setErr(error.message);
-      setSaving(false);
+    const sb = supabase;
+    if (!sb) {
+      setErr("Supabase non configuré");
       return;
     }
 
-    setSaving(false);
+    setSaving(true);
+    setErr(null);
 
-    onSaved(); // refresh liste
-    onClose(); // ferme la modale
+    try {
+      const payload = {
+        name: name.trim(),
+        address_city: city.trim() || null,
+        email: email.trim() || null,
+        phone: phone.trim() || null,
+        address_street: street.trim() || null,
+        address_postal_code: zipCode.trim() || null,
+      };
 
-    if (mode === "openClients") {
-      onSavedAndOpenClients?.();
+      const { error } = await sb.from("clients").insert(payload);
+
+      if (error) {
+        setErr(error.message);
+        setSaving(false);
+        return;
+      }
+
+      setSaving(false);
+
+      onSaved();
+      onClose();
+
+      if (mode === "openClients") {
+        onSavedAndOpenClients?.();
+      }
+    } catch (e: any) {
+      setErr(e?.message ?? "Erreur");
+      setSaving(false);
     }
   }
 

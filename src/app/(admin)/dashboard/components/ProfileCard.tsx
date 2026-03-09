@@ -24,8 +24,8 @@ export default function ProfileCard({
   const [profile, setProfile] = useState<Profile | null>(null);
 
   useEffect(() => {
-    (async () => {
-      if (!userId) return;
+    async function loadProfile() {
+      if (!supabase || !userId) return;
 
       const { data } = await supabase
         .from("profiles")
@@ -34,8 +34,10 @@ export default function ProfileCard({
         .maybeSingle();
 
       setProfile(data ?? null);
-    })();
-  }, [supabase, userId, open]);
+    }
+
+    void loadProfile();
+  }, [userId, open]);
 
   return (
     <Card>
@@ -50,7 +52,9 @@ export default function ProfileCard({
             <div>
               <div className="text-gray-500">Nom</div>
               <div className="font-medium">
-                {loading ? "..." : `${profile?.first_name ?? ""} ${profile?.last_name ?? ""}`.trim() || "-"}
+                {loading
+                  ? "..."
+                  : `${profile?.first_name ?? ""} ${profile?.last_name ?? ""}`.trim() || "-"}
               </div>
             </div>
 

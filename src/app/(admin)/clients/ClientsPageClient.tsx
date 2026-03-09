@@ -239,7 +239,7 @@ export default function ClientsPageClient() {
   const [kpisByClientId, setKpisByClientId] = useState<Record<string, ClientKpis>>({});
   const [kpisPrevByClientId, setKpisPrevByClientId] = useState<Record<string, ClientKpis>>({});
   const [quotesInProgressByClientId, setQuotesInProgressByClientId] = useState<Record<string, number>>({});
-const [quotesInProgressCountByClientId, setQuotesInProgressCountByClientId] = useState<Record<string, number>>({});
+  const [quotesInProgressCountByClientId, setQuotesInProgressCountByClientId] = useState<Record<string, number>>({});
   const [selected, setSelected] = useState<Client | null>(null);
   const [viewOpen, setViewOpen] = useState(false);
   const [editOpen, setEditOpen] = useState(false);
@@ -359,11 +359,17 @@ const [quotesInProgressCountByClientId, setQuotesInProgressCountByClientId] = us
   }, [visibleKpis]);
 
   async function loadOrgId() {
-    const { data, error } = await supabase.rpc("current_org_id");
+    const sb = supabase;
+    if (!sb) {
+      setOrgId(null);
+      return null;
+    }
+
+    const { data, error } = await sb.rpc("current_org_id");
     if (error) throw error;
 
     const oid = (data as string) ?? null;
-    if (!oid) throw new Error("Aucun organisme associé à ce compte.");
+    setOrgId(oid);
     return oid;
   }
 
@@ -384,18 +390,42 @@ const [quotesInProgressCountByClientId, setQuotesInProgressCountByClientId] = us
   function quotesInProgressForClient(clientId: string) {
     return Number(quotesInProgressByClientId[clientId] ?? 0);
   }
-function quotesInProgressCountForClient(clientId: string) {
-  return Number(quotesInProgressCountByClientId[clientId] ?? 0);
-}
+
+  function quotesInProgressCountForClient(clientId: string) {
+    return Number(quotesInProgressCountByClientId[clientId] ?? 0);
+  }
+
   async function fetchClients() {
     setLoading(true);
     setError(null);
 
     try {
+      const sb = supabase;
+      if (!sb) {
+        setOrgId(null);
+        setClients([]);
+        setKpisByClientId({});
+        setKpisPrevByClientId({});
+        setQuotesInProgressByClientId({});
+        setQuotesInProgressCountByClientId({});
+        setLoading(false);
+        return;
+      }
+
       const oid = orgId ?? (await loadOrgId());
       setOrgId(oid);
 
-      const { data, error } = await supabase
+      if (!oid) {
+        setClients([]);
+        setKpisByClientId({});
+        setKpisPrevByClientId({});
+        setQuotesInProgressByClientId({});
+        setQuotesInProgressCountByClientId({});
+        setLoading(false);
+        return;
+      }
+
+      const { data, error } = await sb
         .from("clients")
         .select(
           [
@@ -416,16 +446,17 @@ function quotesInProgressCountForClient(clientId: string) {
 
       if (error) throw error;
 
-setClients((data ?? []) as unknown as Client[]);
+      setClients((data ?? []) as unknown as Client[]);
+
       try {
         const [
           { data: kpiData, error: kpiErr },
           { data: kpiPrevData, error: kpiPrevErr },
           { data: quotesData, error: quotesErr },
         ] = await Promise.all([
-          supabase.rpc("clients_kpis_v2", { p_year: currentYear }),
-          supabase.rpc("clients_kpis_v2", { p_year: currentYear - 1 }),
-          supabase.rpc("clients_quotes_in_progress_v1"),
+          sb.rpc("clients_kpis_v2", { p_year: currentYear }),
+          sb.rpc("clients_kpis_v2", { p_year: currentYear - 1 }),
+          sb.rpc("clients_quotes_in_progress_v1"),
         ]);
 
         if (!kpiErr && Array.isArray(kpiData)) {
@@ -466,7 +497,7 @@ setClients((data ?? []) as unknown as Client[]);
           setKpisPrevByClientId({});
         }
 
-               if (!quotesErr && Array.isArray(quotesData)) {
+        if (!quotesErr && Array.isArray(quotesData)) {
           const mapQuotes: Record<string, number> = {};
           const mapQuotesCount: Record<string, number> = {};
 
@@ -483,14 +514,14 @@ setClients((data ?? []) as unknown as Client[]);
           setQuotesInProgressCountByClientId({});
         }
       } catch {
-                setKpisByClientId({});
+        setKpisByClientId({});
         setKpisPrevByClientId({});
         setQuotesInProgressByClientId({});
         setQuotesInProgressCountByClientId({});
       }
     } catch (e: any) {
       setError(e?.message ?? "Erreur");
-           setClients([]);
+      setClients([]);
       setKpisByClientId({});
       setKpisPrevByClientId({});
       setQuotesInProgressByClientId({});
@@ -546,7 +577,13 @@ setClients((data ?? []) as unknown as Client[]);
     const ok = window.confirm("Supprimer ce client ?");
     if (!ok) return;
 
-    const { error } = await supabase.from("clients").delete().eq("id", c.id);
+    const sb = supabase;
+    if (!sb) {
+      setError("Supabase non configuré");
+      return;
+    }
+
+    const { error } = await sb.from("clients").delete().eq("id", c.id);
     if (error) {
       setError(error.message);
       return;
@@ -558,9 +595,15 @@ setClients((data ?? []) as unknown as Client[]);
   async function saveEdit() {
     if (!selected) return;
 
+    const sb = supabase;
+    if (!sb) {
+      setError("Supabase non configuré");
+      return;
+    }
+
     setSaving(true);
 
-    const { error } = await supabase
+    const { error } = await sb
       .from("clients")
       .update({
         name: formName.trim() || null,
@@ -590,10 +633,23 @@ setClients((data ?? []) as unknown as Client[]);
     setError(null);
 
     try {
+      const sb = supabase;
+      if (!sb) {
+        setCreating(false);
+        setError("Supabase non configuré");
+        return;
+      }
+
       const oid = orgId ?? (await loadOrgId());
       setOrgId(oid);
 
-      const { error } = await supabase.from("clients").insert({
+      if (!oid) {
+        setCreating(false);
+        setError("Organisation introuvable");
+        return;
+      }
+
+      const { error } = await sb.from("clients").insert({
         org_id: oid,
         name: formName.trim() || null,
         address_street: formStreet.trim() || null,
@@ -620,7 +676,7 @@ setClients((data ?? []) as unknown as Client[]);
     }
   }
 
-   const totals = clients.reduce(
+  const totals = clients.reduce(
     (acc, c) => {
       const k = kpisForYear(kpisByClientId, c.id);
       acc.learners_current_year += k.learners_current_year;
@@ -755,7 +811,7 @@ setClients((data ?? []) as unknown as Client[]);
           </div>
         ) : null}
 
-               <div className="flex justify-end">
+        <div className="flex justify-end">
           <div className="relative">
             <button
               type="button"

@@ -15,6 +15,16 @@ export default function EditPasswordModal({
 }) {
   const [password, setPassword] = useState("");
 
+  async function handleSave() {
+    if (!supabase) return;
+
+    await supabase.auth.updateUser({
+      password,
+    });
+
+    onClose();
+  }
+
   return (
     <Modal open={open} onClose={onClose} title="Changer le mot de passe">
       <div className="space-y-4">
@@ -32,12 +42,8 @@ export default function EditPasswordModal({
           <Button variant="secondary" onClick={onClose}>
             Annuler
           </Button>
-          <Button
-            onClick={async () => {
-              await supabase.auth.updateUser({ password });
-              onClose();
-            }}
-          >
+
+          <Button onClick={handleSave}>
             Enregistrer
           </Button>
         </div>
