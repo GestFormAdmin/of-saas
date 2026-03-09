@@ -16,6 +16,7 @@ type Expense = {
   amount_ttc: number;
   structure: string | null;
   is_paid: boolean;
+  justificatif_classe: boolean;
   year: number;
   created_at?: string;
   updated_at?: string;
@@ -31,6 +32,7 @@ type ColumnKey =
   | "amount_ht"
   | "structure"
   | "is_paid"
+  | "justificatif_classe"
   | "year"
   | "actions";
 
@@ -100,6 +102,7 @@ const COLUMNS: UiColumn[] = [
   { key: "amount_ht", label: "HT", defaultOn: false, align: "right" },
   { key: "structure", label: "Structure", defaultOn: true },
   { key: "is_paid", label: "Réglée", defaultOn: true, align: "center" },
+  { key: "justificatif_classe", label: "Justificatif classé", defaultOn: true, align: "center" },
   { key: "year", label: "Année", defaultOn: false, align: "center" },
   { key: "actions", label: "Actions", defaultOn: true, align: "center" },
 ];
@@ -127,6 +130,7 @@ export default function DepensesPage() {
       amount_ht: false,
       structure: true,
       is_paid: true,
+      justificatif_classe: true,
       year: false,
       actions: true,
     };
@@ -154,6 +158,7 @@ export default function DepensesPage() {
     amount_ttc: "",
     structure: "",
     is_paid: false,
+    justificatif_classe: false,
   });
 
   const [useCustomCategory, setUseCustomCategory] = useState(false);
@@ -193,9 +198,11 @@ export default function DepensesPage() {
         return;
       }
 
-      const { data, error } = await supabase.from("expenses").select("*").eq("org_id", oid).order("date", {
-        ascending: false,
-      });
+      const { data, error } = await supabase
+        .from("expenses")
+        .select("*")
+        .eq("org_id", oid)
+        .order("date", { ascending: false });
 
       if (error) throw error;
 
@@ -219,52 +226,53 @@ export default function DepensesPage() {
     const ys = Array.from(new Set(rows.map((r) => r.year))).sort((a, b) => b - a);
     return ys;
   }, [rows]);
-// ✅ 1) Remplace TON bloc KPI par celui-ci
-const kpi = useMemo(() => {
-  const year = new Date().getFullYear();
-  const prevYear = year - 1;
 
-  const scope = rows.filter((r) => r.year === year);
-  const scopePrev = rows.filter((r) => r.year === prevYear);
+  const kpi = useMemo(() => {
+    const year = new Date().getFullYear();
+    const prevYear = year - 1;
 
-  const total = scope.reduce((acc, r) => acc + (Number(r.amount_ttc) || 0), 0);
-  const totalPrev = scopePrev.reduce((acc, r) => acc + (Number(r.amount_ttc) || 0), 0);
+    const scope = rows.filter((r) => r.year === year);
+    const scopePrev = rows.filter((r) => r.year === prevYear);
 
-  const paid = scope.filter((r) => r.is_paid).reduce((acc, r) => acc + (Number(r.amount_ttc) || 0), 0);
-  const paidPrev = scopePrev
-    .filter((r) => r.is_paid)
-    .reduce((acc, r) => acc + (Number(r.amount_ttc) || 0), 0);
+    const total = scope.reduce((acc, r) => acc + (Number(r.amount_ttc) || 0), 0);
+    const totalPrev = scopePrev.reduce((acc, r) => acc + (Number(r.amount_ttc) || 0), 0);
 
-  const unpaid = scope.filter((r) => !r.is_paid).reduce((acc, r) => acc + (Number(r.amount_ttc) || 0), 0);
-  const unpaidPrev = scopePrev
-    .filter((r) => !r.is_paid)
-    .reduce((acc, r) => acc + (Number(r.amount_ttc) || 0), 0);
+    const paid = scope.filter((r) => r.is_paid).reduce((acc, r) => acc + (Number(r.amount_ttc) || 0), 0);
+    const paidPrev = scopePrev
+      .filter((r) => r.is_paid)
+      .reduce((acc, r) => acc + (Number(r.amount_ttc) || 0), 0);
 
-  const byCategory = new Map<string, number>();
-  for (const r of scope) {
-    const c = (r.category ?? "—").trim() || "—";
-    byCategory.set(c, (byCategory.get(c) ?? 0) + (Number(r.amount_ttc) || 0));
-  }
+    const unpaid = scope.filter((r) => !r.is_paid).reduce((acc, r) => acc + (Number(r.amount_ttc) || 0), 0);
+    const unpaidPrev = scopePrev
+      .filter((r) => !r.is_paid)
+      .reduce((acc, r) => acc + (Number(r.amount_ttc) || 0), 0);
 
-  const topCategories = [...byCategory.entries()]
-    .sort((a, b) => b[1] - a[1])
-    .slice(0, 3)
-    .map(([name, sum]) => ({ name, sum }));
+    const byCategory = new Map<string, number>();
+    for (const r of scope) {
+      const c = (r.category ?? "—").trim() || "—";
+      byCategory.set(c, (byCategory.get(c) ?? 0) + (Number(r.amount_ttc) || 0));
+    }
 
-  return {
-    year,
-    prevYear,
-    total,
-    totalPrev,
-    paid,
-    paidPrev,
-    unpaid,
-    unpaidPrev,
-    countYear: scope.length,
-    countPrevYear: scopePrev.length,
-    topCategories,
-  };
-}, [rows]);
+    const topCategories = [...byCategory.entries()]
+      .sort((a, b) => b[1] - a[1])
+      .slice(0, 3)
+      .map(([name, sum]) => ({ name, sum }));
+
+    return {
+      year,
+      prevYear,
+      total,
+      totalPrev,
+      paid,
+      paidPrev,
+      unpaid,
+      unpaidPrev,
+      countYear: scope.length,
+      countPrevYear: scopePrev.length,
+      topCategories,
+    };
+  }, [rows]);
+
   /* ================== FILTER + SORT ================== */
   const filtered = useMemo(() => {
     const qq = safeLower(q.trim());
@@ -326,10 +334,21 @@ const kpi = useMemo(() => {
     setRows((prev) => prev.map((r) => (r.id === row.id ? { ...r, is_paid: next } : r)));
   }
 
+  async function toggleJustificatifClasse(row: Expense) {
+    const next = !row.justificatif_classe;
+    const { error } = await supabase.from("expenses").update({ justificatif_classe: next }).eq("id", row.id);
+    if (error) {
+      setError(error.message);
+      return;
+    }
+    setRows((prev) => prev.map((r) => (r.id === row.id ? { ...r, justificatif_classe: next } : r)));
+  }
+
   function openViewModal(id: string) {
     setSelectedId(id);
     setOpenView(true);
   }
+
   function closeViewModal() {
     setOpenView(false);
     setSelectedId(null);
@@ -338,11 +357,21 @@ const kpi = useMemo(() => {
   function openCreateModal() {
     setSelectedId(null);
     setError(null);
-    setForm({ date: "", designation: "", category: "", amount_ht: "", amount_ttc: "", structure: "", is_paid: false });
+    setForm({
+      date: "",
+      designation: "",
+      category: "",
+      amount_ht: "",
+      amount_ttc: "",
+      structure: "",
+      is_paid: false,
+      justificatif_classe: false,
+    });
     setUseCustomCategory(false);
     setCustomCategory("");
     setOpenCreate(true);
   }
+
   function closeCreateModal() {
     setOpenCreate(false);
   }
@@ -362,6 +391,7 @@ const kpi = useMemo(() => {
       amount_ttc: row.amount_ttc == null ? "" : String(row.amount_ttc),
       structure: row.structure ?? "",
       is_paid: !!row.is_paid,
+      justificatif_classe: !!row.justificatif_classe,
     });
 
     const inList = categories.includes(row.category ?? "");
@@ -369,6 +399,7 @@ const kpi = useMemo(() => {
     setCustomCategory(!inList && row.category ? row.category : "");
     setOpenEdit(true);
   }
+
   function closeEditModal() {
     setOpenEdit(false);
   }
@@ -399,6 +430,7 @@ const kpi = useMemo(() => {
       amount_ttc: amountTtc,
       structure: form.structure?.trim() ? form.structure.trim() : null,
       is_paid: !!form.is_paid,
+      justificatif_classe: !!form.justificatif_classe,
     };
 
     const { error } = await supabase.from("expenses").insert(payload);
@@ -430,6 +462,7 @@ const kpi = useMemo(() => {
       amount_ttc: amountTtc,
       structure: form.structure?.trim() ? form.structure.trim() : null,
       is_paid: !!form.is_paid,
+      justificatif_classe: !!form.justificatif_classe,
     };
 
     const { error } = await supabase.from("expenses").update(payload).eq("id", selectedId);
@@ -533,54 +566,54 @@ const kpi = useMemo(() => {
       {/* KPI */}
       <div className="kpiGrid" style={kpiGridStyle}>
         <KpiCard
-  title={`Total ${kpi.year}`}
-  value={euro(kpi.total)}
-  sub={`${kpi.prevYear} : ${euro(kpi.totalPrev)}`}
-  tone="green"
-  icon="💶"
-/>
+          title={`Total ${kpi.year}`}
+          value={euro(kpi.total)}
+          sub={`${kpi.prevYear} : ${euro(kpi.totalPrev)}`}
+          tone="green"
+          icon="💶"
+        />
         <KpiCard
-  title={`Réglées ${kpi.year}`}
-  value={euro(kpi.paid)}
-  sub={`${kpi.prevYear} : ${euro(kpi.paidPrev)}`}
-  tone="blue"
-  icon="✅"
-/>
-<KpiCard
-  title={`Non réglées ${kpi.year}`}
-  value={euro(kpi.unpaid)}
-  sub={`${kpi.prevYear} : ${euro(kpi.unpaidPrev)}`}
-  tone="orange"
-  icon="⏳"
-/>
-<KpiCard
-  title="Dépenses"
-  value={`${kpi.countYear}`}
-  sub={`${kpi.prevYear} : ${kpi.countPrevYear}`}
-  tone="red"
-  icon="🧾"
-/>
+          title={`Réglées ${kpi.year}`}
+          value={euro(kpi.paid)}
+          sub={`${kpi.prevYear} : ${euro(kpi.paidPrev)}`}
+          tone="blue"
+          icon="✅"
+        />
+        <KpiCard
+          title={`Non réglées ${kpi.year}`}
+          value={euro(kpi.unpaid)}
+          sub={`${kpi.prevYear} : ${euro(kpi.unpaidPrev)}`}
+          tone="orange"
+          icon="⏳"
+        />
+        <KpiCard
+          title="Dépenses"
+          value={`${kpi.countYear}`}
+          sub={`${kpi.prevYear} : ${kpi.countPrevYear}`}
+          tone="red"
+          icon="🧾"
+        />
         <KpiCard
           title="Top 3 catégories"
           value={kpi.topCategories?.[0]?.name ?? "—"}
-         sub={
-  kpi.topCategories.length ? (
-    <div style={{ display: "grid", gap: 3, fontSize: 12, lineHeight: 1.15 }}>
-      {kpi.topCategories.map((c, i) => (
-        <div key={`${c.name}-${i}`} style={{ display: "flex", justifyContent: "space-between", gap: 10 }}>
-          <span style={{ fontWeight: 900, opacity: 0.85 }}>
-            {i + 1}. {c.name}
-          </span>
-          <span style={{ fontVariantNumeric: "tabular-nums", opacity: 0.85, fontWeight: 900 }}>
-            {euro(c.sum)}
-          </span>
-        </div>
-      ))}
-    </div>
-  ) : (
-    " "
-  )
-}
+          sub={
+            kpi.topCategories.length ? (
+              <div style={{ display: "grid", gap: 3, fontSize: 12, lineHeight: 1.15 }}>
+                {kpi.topCategories.map((c, i) => (
+                  <div key={`${c.name}-${i}`} style={{ display: "flex", justifyContent: "space-between", gap: 10 }}>
+                    <span style={{ fontWeight: 900, opacity: 0.85 }}>
+                      {i + 1}. {c.name}
+                    </span>
+                    <span style={{ fontVariantNumeric: "tabular-nums", opacity: 0.85, fontWeight: 900 }}>
+                      {euro(c.sum)}
+                    </span>
+                  </div>
+                ))}
+              </div>
+            ) : (
+              " "
+            )
+          }
           tone="gray"
           icon="🏷️"
         />
@@ -647,8 +680,18 @@ const kpi = useMemo(() => {
                     style={softBtnStyle}
                     type="button"
                     onClick={() => {
-                      const next: any = {};
-                      COLUMNS.forEach((c) => (next[c.key] = c.defaultOn));
+                      const next: Record<ColumnKey, boolean> = {
+                        date: true,
+                        designation: true,
+                        category: true,
+                        amount_ttc: true,
+                        amount_ht: false,
+                        structure: true,
+                        is_paid: true,
+                        justificatif_classe: true,
+                        year: false,
+                        actions: true,
+                      };
                       setEnabledCols(next);
                     }}
                   >
@@ -662,7 +705,8 @@ const kpi = useMemo(() => {
             )}
           </div>
         </div>
-
+      
+      
         <div style={tableWrapStyle}>
           <table style={tableStyle}>
             <thead>
@@ -702,6 +746,11 @@ const kpi = useMemo(() => {
                     Réglée {sortKey === "is_paid" ? (sortDir === "asc" ? "▲" : "▼") : ""}
                   </Th>
                 )}
+                {enabledCols.justificatif_classe && (
+                  <Th onClick={() => toggleSort("justificatif_classe")} align="center">
+                    Justificatif classé {sortKey === "justificatif_classe" ? (sortDir === "asc" ? "▲" : "▼") : ""}
+                  </Th>
+                )}
                 {enabledCols.year && (
                   <Th onClick={() => toggleSort("year")} align="center">
                     Année {sortKey === "year" ? (sortDir === "asc" ? "▲" : "▼") : ""}
@@ -711,7 +760,6 @@ const kpi = useMemo(() => {
               </tr>
             </thead>
 
-         
             <tbody>
               {loading ? (
                 <tr>
@@ -740,7 +788,20 @@ const kpi = useMemo(() => {
                         onClick={() => void togglePaid(r)}
                         title="Cliquer pour basculer"
                       >
-                        <PaidPill ok={r.is_paid} />
+                        <PaidPill ok={r.is_paid} yesTitle="Réglée" noTitle="Non réglée" />
+                      </td>
+                    )}
+                    {enabledCols.justificatif_classe && (
+                      <td
+                        style={tdStyleCenterClickable}
+                        onClick={() => void toggleJustificatifClasse(r)}
+                        title="Cliquer pour basculer"
+                      >
+                        <PaidPill
+                          ok={r.justificatif_classe}
+                          yesTitle="Justificatif classé"
+                          noTitle="Justificatif non classé"
+                        />
                       </td>
                     )}
                     {enabledCols.year && <td style={tdStyleCenter}>{String(r.year)}</td>}
@@ -798,6 +859,10 @@ const kpi = useMemo(() => {
                 <Info label="Montant TTC" value={euro(selected.amount_ttc)} />
                 <Info label="Structure" value={selected.structure ?? "—"} wide />
                 <Info label="Réglée" value={selected.is_paid ? "Oui" : "Non"} />
+                <Info
+                  label="Justificatif classé"
+                  value={selected.justificatif_classe ? "Oui" : "Non"}
+                />
                 <Info label="Année" value={String(selected.year)} />
               </div>
             </div>
@@ -884,14 +949,25 @@ const kpi = useMemo(() => {
                   />
                 </div>
 
-                <label style={{ display: "flex", alignItems: "center", gap: 8, cursor: "pointer" }}>
-                  <input
-                    type="checkbox"
-                    checked={form.is_paid}
-                    onChange={(e) => setField("is_paid", e.target.checked)}
-                  />
-                  <span style={{ fontWeight: 900 }}>Réglée</span>
-                </label>
+                <div style={{ display: "grid", gap: 10 }}>
+                  <label style={{ display: "flex", alignItems: "center", gap: 8, cursor: "pointer" }}>
+                    <input
+                      type="checkbox"
+                      checked={form.is_paid}
+                      onChange={(e) => setField("is_paid", e.target.checked)}
+                    />
+                    <span style={{ fontWeight: 900 }}>Réglée</span>
+                  </label>
+
+                  <label style={{ display: "flex", alignItems: "center", gap: 8, cursor: "pointer" }}>
+                    <input
+                      type="checkbox"
+                      checked={form.justificatif_classe}
+                      onChange={(e) => setField("justificatif_classe", e.target.checked)}
+                    />
+                    <span style={{ fontWeight: 900 }}>Justificatif classé</span>
+                  </label>
+                </div>
               </div>
             </div>
 
@@ -906,7 +982,8 @@ const kpi = useMemo(() => {
           </div>
         </div>
       )}
-
+  
+  
       {/* EDIT MODAL */}
       {openEdit && (
         <div style={overlayStyle} onMouseDown={closeEditModal}>
@@ -972,14 +1049,25 @@ const kpi = useMemo(() => {
                   />
                 </div>
 
-                <label style={{ display: "flex", alignItems: "center", gap: 8, cursor: "pointer" }}>
-                  <input
-                    type="checkbox"
-                    checked={form.is_paid}
-                    onChange={(e) => setField("is_paid", e.target.checked)}
-                  />
-                  <span style={{ fontWeight: 900 }}>Réglée</span>
-                </label>
+                <div style={{ display: "grid", gap: 10 }}>
+                  <label style={{ display: "flex", alignItems: "center", gap: 8, cursor: "pointer" }}>
+                    <input
+                      type="checkbox"
+                      checked={form.is_paid}
+                      onChange={(e) => setField("is_paid", e.target.checked)}
+                    />
+                    <span style={{ fontWeight: 900 }}>Réglée</span>
+                  </label>
+
+                  <label style={{ display: "flex", alignItems: "center", gap: 8, cursor: "pointer" }}>
+                    <input
+                      type="checkbox"
+                      checked={form.justificatif_classe}
+                      onChange={(e) => setField("justificatif_classe", e.target.checked)}
+                    />
+                    <span style={{ fontWeight: 900 }}>Justificatif classé</span>
+                  </label>
+                </div>
               </div>
             </div>
 
@@ -1049,7 +1137,15 @@ function Th(props: { children: React.ReactNode; onClick?: () => void; align?: "l
   );
 }
 
-function PaidPill({ ok }: { ok: boolean }) {
+function PaidPill({
+  ok,
+  yesTitle = "Oui",
+  noTitle = "Non",
+}: {
+  ok: boolean;
+  yesTitle?: string;
+  noTitle?: string;
+}) {
   return (
     <span
       style={{
@@ -1065,7 +1161,7 @@ function PaidPill({ ok }: { ok: boolean }) {
         color: ok ? "rgb(22,163,74)" : "rgb(220,38,38)",
         userSelect: "none",
       }}
-      title={ok ? "Réglée" : "Non réglée"}
+      title={ok ? yesTitle : noTitle}
     >
       {ok ? "✓" : "✕"}
     </span>
@@ -1094,18 +1190,18 @@ function KpiCard(props: {
         <div>
           <div style={{ fontSize: 13, fontWeight: 950, opacity: 0.7 }}>{props.title}</div>
           <div style={{ fontSize: 30, fontWeight: 980, letterSpacing: -0.5, marginTop: 8 }}>{props.value}</div>
-<div
-  style={{
-    marginTop: 6,
-    opacity: 0.65,
-    fontWeight: 800,
-    fontSize: 11,   // ← taille réduite
-    lineHeight: 1.2
-  }}
->
-  {props.sub ?? " "}
-</div>       
- </div>
+          <div
+            style={{
+              marginTop: 6,
+              opacity: 0.65,
+              fontWeight: 800,
+              fontSize: 11,
+              lineHeight: 1.2,
+            }}
+          >
+            {props.sub ?? " "}
+          </div>
+        </div>
 
         <div
           style={{
@@ -1126,7 +1222,7 @@ function KpiCard(props: {
     </div>
   );
 }
-// ===== BLOCK 4/4 =====
+
 /* ================== STYLES ================== */
 const containerStyle: React.CSSProperties = { width: "100%", maxWidth: 1200, margin: "0 auto", padding: 18 };
 
@@ -1227,7 +1323,7 @@ const tableWrapStyle: React.CSSProperties = {
   borderTop: "1px solid rgba(15, 23, 42, 0.10)",
 };
 
-const tableStyle: React.CSSProperties = { width: "100%", minWidth: 980, borderCollapse: "separate", borderSpacing: 0 };
+const tableStyle: React.CSSProperties = { width: "100%", minWidth: 1120, borderCollapse: "separate", borderSpacing: 0 };
 
 const thStyle: React.CSSProperties = {
   textAlign: "left",

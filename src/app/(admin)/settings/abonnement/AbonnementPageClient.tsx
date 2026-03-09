@@ -1,6 +1,7 @@
 "use client";
 export const dynamic = "force-dynamic";
 export const revalidate = 0;
+
 import { useEffect, useMemo, useState } from "react";
 import { supabase } from "@/lib/supabase/browser";
 import LegalPricingText from "./LegalPricingText";
@@ -58,11 +59,26 @@ function normalizePlanCode(code: any): BillingPlanCode {
   return "free";
 }
 
+function planLabel(code: BillingPlanCode): string {
+  if (code === "free") return "Starter";
+  if (code === "pro") return "Pro";
+  if (code === "business") return "Business";
+  if (code === "scale") return "Scale";
+  if (code === "enterprise") return "Scale+";
+  if (code === "custom") return "Entreprise";
+  return "Starter";
+}
+
+function canCheckout(code: BillingPlanCode): boolean {
+  return code !== "free" && code !== "custom";
+}
+
 export default function BillingPage() {
   const [billing, setBilling] = useState<BillingPlan | null>(null);
   const [loading, setLoading] = useState(true);
   const [orgId, setOrgId] = useState<string | null>(null);
   const [loadingPlan, setLoadingPlan] = useState<BillingPlanCode | null>(null);
+  const [optimisticPlan, setOptimisticPlan] = useState<BillingPlanCode | null>(null);
 
   const plans = useMemo<UiPlan[]>(
     () => [
@@ -171,12 +187,19 @@ export default function BillingPage() {
     );
 
     if (!planByOrgErr && planByOrg && planByOrg[0]?.plan_code) {
+      const dbPlan = normalizePlanCode(planByOrg[0].plan_code);
       setBilling({
         org_id: oid,
-        plan_code: normalizePlanCode(planByOrg[0].plan_code),
+        plan_code: dbPlan,
         billing_year: new Date().getFullYear(),
         stripe_subscription_id: planByOrg[0].stripe_subscription_id ?? null,
       });
+
+      const pendingPlan = sessionStorage.getItem("billing_pending_plan") as BillingPlanCode | null;
+      if (pendingPlan && pendingPlan === dbPlan) {
+        sessionStorage.removeItem("billing_pending_plan");
+        setOptimisticPlan(null);
+      }
     } else {
       setBilling({
         org_id: oid,
@@ -193,22 +216,23 @@ export default function BillingPage() {
     (async () => {
       const url = new URL(window.location.href);
       const success = url.searchParams.get("success");
+      const pendingPlan = sessionStorage.getItem("billing_pending_plan") as BillingPlanCode | null;
 
       await loadBilling();
 
-      // retour Stripe: refresh + reload
-      if (success === "1") {
+      if (success === "1" && pendingPlan) {
+        setOptimisticPlan(pendingPlan);
+
         setTimeout(async () => {
           await loadBilling();
           window.history.replaceState({}, "", "/settings/abonnement");
-          window.location.reload();
-        }, 1200);
+        }, 1500);
       }
     })();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  const currentPlanKey: BillingPlanCode = billing?.plan_code ?? "free";
+  const currentPlanKey: BillingPlanCode = optimisticPlan ?? billing?.plan_code ?? "free";
   const currentIndex = idx(currentPlanKey);
 
   async function getBearerToken(): Promise<string | null> {
@@ -242,6 +266,9 @@ export default function BillingPage() {
       if (!res.ok) return alert(data?.error || `API error ${res.status}`);
       if (!data?.url) return alert(data?.error || "no stripe url");
 
+      sessionStorage.setItem("billing_pending_plan", plan);
+      setOptimisticPlan(plan);
+
       window.location.href = data.url;
     } finally {
       setLoadingPlan(null);
@@ -254,11 +281,14 @@ export default function BillingPage() {
         <div>
           <h1 className="text-2xl font-semibold">Abonnement</h1>
           <p className="text-sm text-gray-500">
-            Plan basé sur le flux d’apprenants de l’année précédente (N-1).
+            Plan actuel :{" "}
+            <span className="font-semibold text-slate-900">
+              {planLabel(currentPlanKey)}
+            </span>
+            . Plan basé sur le flux d’apprenants de l’année précédente (N-1).
           </p>
           <p className="text-xs text-gray-400 mt-1">
-            Org: <span className="font-mono">{orgId ?? "—"}</span> • Plan:{" "}
-            <span className="font-mono">{currentPlanKey}</span>
+            Org: <span className="font-mono">{orgId ?? "—"}</span>
           </p>
         </div>
 
@@ -327,40 +357,21 @@ export default function BillingPage() {
                 </div>
 
                 <div className="mt-auto pt-4">
-                  {isCurrent ? (
-                    <button
-                      className="btn btn-secondary w-full"
-                      type="button"
-                      disabled
-                      aria-disabled="true"
-                    >
-                      Plan actuel
-                    </button>
-                  ) : isLower ? (
-                    <button
-                      className="btn btn-secondary w-full opacity-60 pointer-events-none"
-                      type="button"
-                      disabled
-                      aria-disabled="true"
-                      title="Impossible de souscrire à un plan inférieur"
-                    >
-                      Souscrire
-                    </button>
-                  ) : p.key === "custom" ? (
+                  {isCurrent || isLower ? null : p.key === "custom" ? (
                     <a
                       className="btn btn-primary w-full inline-flex items-center justify-center"
                       href="mailto:contact@tondomaine.com?subject=Offre%20Entreprise"
                     >
                       Nous contacter
                     </a>
-                  ) : isHigher ? (
+                  ) : isHigher && canCheckout(p.key) ? (
                     <button
                       className="btn btn-primary w-full"
                       type="button"
                       disabled={loading || isPlanLoading}
                       onClick={() => subscribe(p.key)}
                     >
-                      {isPlanLoading ? "Redirection…" : "Souscrire"}
+                      {isPlanLoading ? "Redirection..." : "Souscrire"}
                     </button>
                   ) : null}
                 </div>

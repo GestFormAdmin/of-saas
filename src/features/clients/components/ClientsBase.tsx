@@ -100,6 +100,11 @@ type ClientKpis = {
   cash_total_all_time: number;
 };
 
+type ClientQuotesInProgress = {
+  client_id: string;
+  quotes_in_progress_total: number;
+};
+
 /* ================== HELPERS ================== */
 function formatMoneyEUR(value: number) {
   try {
@@ -233,6 +238,7 @@ export default function ClientsPageClient() {
   // KPI read-only
   const [kpisByClientId, setKpisByClientId] = useState<Record<string, ClientKpis>>({});
   const [kpisPrevByClientId, setKpisPrevByClientId] = useState<Record<string, ClientKpis>>({});
+  const [quotesInProgressByClientId, setQuotesInProgressByClientId] = useState<Record<string, number>>({});
 
   // selection + modals
   const [selected, setSelected] = useState<Client | null>(null);
@@ -261,6 +267,7 @@ export default function ClientsPageClient() {
     | "cash_total"
     | "cash_collected"
     | "cash_pending"
+    | "quotes_in_progress_total"
     | "quotes_lost";
 
   type SortDir = "asc" | "desc";
@@ -278,6 +285,7 @@ export default function ClientsPageClient() {
     | "cash_total"
     | "cash_collected"
     | "cash_pending"
+    | "quotes_in_progress_total"
     | "quotes_lost"
     | "actions";
 
@@ -291,6 +299,7 @@ export default function ClientsPageClient() {
     cash_total: true,
     cash_collected: true,
     cash_pending: true,
+    quotes_in_progress_total: true,
     quotes_lost: true,
     actions: true,
   };
@@ -330,9 +339,13 @@ export default function ClientsPageClient() {
         cash_collected: 0,
         cash_pending: 0,
         quotes_lost: 0,
-              cash_total_all_time: 0,
-}
+        cash_total_all_time: 0,
+      }
     );
+  }
+
+  function quotesInProgressForClient(clientId: string) {
+    return Number(quotesInProgressByClientId[clientId] ?? 0);
   }
 
   async function fetchClients() {
@@ -373,9 +386,14 @@ export default function ClientsPageClient() {
       setClients(((data as unknown) as Client[]) ?? []);
 
       try {
-        const [{ data: kpiData, error: kpiErr }, { data: kpiPrevData, error: kpiPrevErr }] = await Promise.all([
+        const [
+          { data: kpiData, error: kpiErr },
+          { data: kpiPrevData, error: kpiPrevErr },
+          { data: quotesInProgressData, error: quotesInProgressErr },
+        ] = await Promise.all([
           supabase.rpc("clients_kpis_v2", { p_year: currentYear }),
           supabase.rpc("clients_kpis_v2", { p_year: currentYear - 1 }),
+          supabase.rpc("clients_quotes_in_progress_v1"),
         ]);
 
         if (!kpiErr && Array.isArray(kpiData)) {
@@ -389,8 +407,8 @@ export default function ClientsPageClient() {
               cash_collected: Number(row.cash_collected ?? 0),
               cash_pending: Number(row.cash_pending ?? 0),
               quotes_lost: Number(row.quotes_lost ?? 0),
-                                        cash_total_all_time: Number(row.cash_total_all_time ?? 0),
-};
+              cash_total_all_time: Number(row.cash_total_all_time ?? 0),
+            };
           });
           setKpisByClientId(map);
         } else {
@@ -401,27 +419,40 @@ export default function ClientsPageClient() {
           const mapPrev: Record<string, ClientKpis> = {};
           (kpiPrevData as any[]).forEach((row) => {
             if (!row?.client_id) return;
-           mapPrev[row.client_id] = {
-  client_id: row.client_id,
-  learners_current_year: Number(row.learners_current_year ?? 0),
-  learners_total: Number(row.learners_total ?? 0),
-  cash_collected: Number(row.cash_collected ?? 0),
-  cash_pending: Number(row.cash_pending ?? 0),
-  quotes_lost: Number(row.quotes_lost ?? 0),
-  cash_total_all_time: Number(row.cash_total_all_time ?? 0), // ✅ AJOUTE ÇA
-};
+            mapPrev[row.client_id] = {
+              client_id: row.client_id,
+              learners_current_year: Number(row.learners_current_year ?? 0),
+              learners_total: Number(row.learners_total ?? 0),
+              cash_collected: Number(row.cash_collected ?? 0),
+              cash_pending: Number(row.cash_pending ?? 0),
+              quotes_lost: Number(row.quotes_lost ?? 0),
+              cash_total_all_time: Number(row.cash_total_all_time ?? 0),
+            };
           });
           setKpisPrevByClientId(mapPrev);
         } else {
           setKpisPrevByClientId({});
         }
+
+        if (!quotesInProgressErr && Array.isArray(quotesInProgressData)) {
+          const mapQuotes: Record<string, number> = {};
+          (quotesInProgressData as ClientQuotesInProgress[]).forEach((row) => {
+            if (!row?.client_id) return;
+            mapQuotes[row.client_id] = Number(row.quotes_in_progress_total ?? 0);
+          });
+          setQuotesInProgressByClientId(mapQuotes);
+        } else {
+          setQuotesInProgressByClientId({});
+        }
       } catch {
         setKpisByClientId({});
         setKpisPrevByClientId({});
+        setQuotesInProgressByClientId({});
       }
     } catch (e: any) {
       setError(e?.message ?? "Erreur");
       setClients([]);
+      setQuotesInProgressByClientId({});
     } finally {
       setLoading(false);
     }
@@ -599,6 +630,7 @@ export default function ClientsPageClient() {
       { key: "cash_total" as const, label: "CA total", align: "right" as const, sortable: true },
       { key: "cash_collected" as const, label: "CA encaissé", align: "right" as const, sortable: true },
       { key: "cash_pending" as const, label: "CA attente", align: "right" as const, sortable: true },
+      { key: "quotes_in_progress_total" as const, label: "Devis en cours", align: "right" as const, sortable: true },
       { key: "quotes_lost" as const, label: "Devis sans suite", align: "right" as const, sortable: true },
       { key: "actions" as const, label: "Actions", align: "center" as const, sortable: false },
     ]
@@ -638,6 +670,8 @@ export default function ClientsPageClient() {
         return kpi.cash_collected;
       case "cash_pending":
         return kpi.cash_pending;
+      case "quotes_in_progress_total":
+        return quotesInProgressForClient(c.id);
       case "quotes_lost":
         return kpi.quotes_lost;
     }
@@ -664,7 +698,7 @@ export default function ClientsPageClient() {
     });
 
     return arr;
-  }, [clientsFiltered, sortKey, sortDir, kpisByClientId]);
+  }, [clientsFiltered, sortKey, sortDir, kpisByClientId, quotesInProgressByClientId]);
 
   const showEmpty = !loading && clientsSorted.length === 0 && !error;
 
@@ -757,6 +791,7 @@ export default function ClientsPageClient() {
                         ["cash_total", "CA total"],
                         ["cash_collected", "CA encaissé"],
                         ["cash_pending", "CA attente"],
+                        ["quotes_in_progress_total", "Devis en cours"],
                         ["quotes_lost", "Devis sans suite"],
                         ["actions", "Actions"],
                       ] as Array<[ColKey, string]>
@@ -868,6 +903,8 @@ export default function ClientsPageClient() {
                       ) : (
                         clientsSorted.map((c) => {
                           const k = kpisForYear(kpisByClientId, c.id);
+                          const quotesInProgress = quotesInProgressForClient(c.id);
+
                           return (
                             <tr key={c.id}>
                               {columns.map((col) => {
@@ -917,6 +954,13 @@ export default function ClientsPageClient() {
                                   return (
                                     <td key={col.key} style={tdStyleRight}>
                                       {formatMoneyEUR(k.cash_pending)}
+                                    </td>
+                                  );
+
+                                if (col.key === "quotes_in_progress_total")
+                                  return (
+                                    <td key={col.key} style={tdStyleRight}>
+                                      {formatMoneyEUR(quotesInProgress)}
                                     </td>
                                   );
 

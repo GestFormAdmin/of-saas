@@ -2,7 +2,7 @@ import type { Metadata } from "next";
 import "./globals.css";
 
 export const metadata: Metadata = {
-  title: "OF-FormaAdmin",
+  title: "OF-FormaTalent",
   description: "Back-office pour organismes de formation",
 };
 

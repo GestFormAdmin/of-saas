@@ -97,7 +97,13 @@ type ClientKpis = {
   cash_collected: number;
   cash_pending: number;
   quotes_lost: number;
-    cash_total_all_time: number;
+  cash_total_all_time: number;
+};
+
+type ClientQuotesInProgress = {
+  client_id: string;
+  quotes_in_progress_total: number;
+  quotes_in_progress_count: number;
 };
 
 /* ================== HELPERS ================== */
@@ -216,8 +222,8 @@ export default function ClientsPageClient() {
   const [clients, setClients] = useState<Client[]>([]);
   const [error, setError] = useState<string | null>(null);
 
-  // search
   const [q, setQ] = useState("");
+
   const clientsFiltered = useMemo(() => {
     const qq = (q ?? "").trim().toLowerCase();
     if (!qq) return clients;
@@ -230,17 +236,15 @@ export default function ClientsPageClient() {
     });
   }, [clients, q]);
 
-  // KPI read-only
   const [kpisByClientId, setKpisByClientId] = useState<Record<string, ClientKpis>>({});
   const [kpisPrevByClientId, setKpisPrevByClientId] = useState<Record<string, ClientKpis>>({});
-
-  // selection + modals
+  const [quotesInProgressByClientId, setQuotesInProgressByClientId] = useState<Record<string, number>>({});
+const [quotesInProgressCountByClientId, setQuotesInProgressCountByClientId] = useState<Record<string, number>>({});
   const [selected, setSelected] = useState<Client | null>(null);
   const [viewOpen, setViewOpen] = useState(false);
   const [editOpen, setEditOpen] = useState(false);
   const [createOpen, setCreateOpen] = useState(false);
 
-  // form fields (create/edit)
   const [formName, setFormName] = useState("");
   const [formStreet, setFormStreet] = useState("");
   const [formPostal, setFormPostal] = useState("");
@@ -252,7 +256,6 @@ export default function ClientsPageClient() {
   const [saving, setSaving] = useState(false);
   const [creating, setCreating] = useState(false);
 
-  // sorting + columns
   type SortKey =
     | "name"
     | "city"
@@ -261,14 +264,15 @@ export default function ClientsPageClient() {
     | "cash_total"
     | "cash_collected"
     | "cash_pending"
+    | "quotes_in_progress_total"
     | "quotes_lost";
 
   type SortDir = "asc" | "desc";
 
   const [sortKey, setSortKey] = useState<SortKey>("name");
   const [sortDir, setSortDir] = useState<SortDir>("asc");
-
   const [colsOpen, setColsOpen] = useState(false);
+  const [kpisOpen, setKpisOpen] = useState(false);
 
   type ColKey =
     | "name"
@@ -278,10 +282,21 @@ export default function ClientsPageClient() {
     | "cash_total"
     | "cash_collected"
     | "cash_pending"
+    | "quotes_in_progress_total"
     | "quotes_lost"
     | "actions";
 
+  type KpiKey =
+    | "clients"
+    | "learners_current_year"
+    | "cash_total"
+    | "cash_collected"
+    | "cash_pending"
+    | "quotes_in_progress_total"
+    | "quotes_lost";
+
   const COLS_STORAGE_KEY = "clients_table_cols_v1";
+  const KPI_STORAGE_KEY = "clients_kpi_cards_v1";
 
   const defaultVisibleCols: Record<ColKey, boolean> = {
     name: true,
@@ -291,18 +306,32 @@ export default function ClientsPageClient() {
     cash_total: true,
     cash_collected: true,
     cash_pending: true,
+    quotes_in_progress_total: true,
     quotes_lost: true,
     actions: true,
   };
 
+  const defaultVisibleKpis: Record<KpiKey, boolean> = {
+    clients: true,
+    learners_current_year: true,
+    cash_total: true,
+    cash_collected: true,
+    cash_pending: true,
+    quotes_in_progress_total: true,
+    quotes_lost: true,
+  };
+
   const [visibleCols, setVisibleCols] = useState<Record<ColKey, boolean>>(defaultVisibleCols);
+  const [visibleKpis, setVisibleKpis] = useState<Record<KpiKey, boolean>>(defaultVisibleKpis);
 
   useEffect(() => {
     try {
       const raw = localStorage.getItem(COLS_STORAGE_KEY);
       if (!raw) return;
       const parsed = JSON.parse(raw);
-      if (parsed && typeof parsed === "object") setVisibleCols((prev) => ({ ...prev, ...parsed }));
+      if (parsed && typeof parsed === "object") {
+        setVisibleCols((prev) => ({ ...prev, ...parsed }));
+      }
     } catch {}
   }, []);
 
@@ -311,6 +340,23 @@ export default function ClientsPageClient() {
       localStorage.setItem(COLS_STORAGE_KEY, JSON.stringify(visibleCols));
     } catch {}
   }, [visibleCols]);
+
+  useEffect(() => {
+    try {
+      const raw = localStorage.getItem(KPI_STORAGE_KEY);
+      if (!raw) return;
+      const parsed = JSON.parse(raw);
+      if (parsed && typeof parsed === "object") {
+        setVisibleKpis((prev) => ({ ...prev, ...parsed }));
+      }
+    } catch {}
+  }, []);
+
+  useEffect(() => {
+    try {
+      localStorage.setItem(KPI_STORAGE_KEY, JSON.stringify(visibleKpis));
+    } catch {}
+  }, [visibleKpis]);
 
   async function loadOrgId() {
     const { data, error } = await supabase.rpc("current_org_id");
@@ -330,11 +376,17 @@ export default function ClientsPageClient() {
         cash_collected: 0,
         cash_pending: 0,
         quotes_lost: 0,
-                      cash_total_all_time: 0,
-}
+        cash_total_all_time: 0,
+      }
     );
   }
 
+  function quotesInProgressForClient(clientId: string) {
+    return Number(quotesInProgressByClientId[clientId] ?? 0);
+  }
+function quotesInProgressCountForClient(clientId: string) {
+  return Number(quotesInProgressCountByClientId[clientId] ?? 0);
+}
   async function fetchClients() {
     setLoading(true);
     setError(null);
@@ -342,13 +394,6 @@ export default function ClientsPageClient() {
     try {
       const oid = orgId ?? (await loadOrgId());
       setOrgId(oid);
-
-      if (!oid) {
-        setClients([]);
-        setError("Aucun organisme associé à ce compte.");
-        setLoading(false);
-        return;
-      }
 
       const { data, error } = await supabase
         .from("clients")
@@ -370,12 +415,17 @@ export default function ClientsPageClient() {
         .order("created_at", { ascending: false });
 
       if (error) throw error;
-      setClients(((data as unknown) as Client[]) ?? []);
 
+setClients((data ?? []) as unknown as Client[]);
       try {
-        const [{ data: kpiData, error: kpiErr }, { data: kpiPrevData, error: kpiPrevErr }] = await Promise.all([
+        const [
+          { data: kpiData, error: kpiErr },
+          { data: kpiPrevData, error: kpiPrevErr },
+          { data: quotesData, error: quotesErr },
+        ] = await Promise.all([
           supabase.rpc("clients_kpis_v2", { p_year: currentYear }),
           supabase.rpc("clients_kpis_v2", { p_year: currentYear - 1 }),
+          supabase.rpc("clients_quotes_in_progress_v1"),
         ]);
 
         if (!kpiErr && Array.isArray(kpiData)) {
@@ -389,8 +439,8 @@ export default function ClientsPageClient() {
               cash_collected: Number(row.cash_collected ?? 0),
               cash_pending: Number(row.cash_pending ?? 0),
               quotes_lost: Number(row.quotes_lost ?? 0),
-                                        cash_total_all_time: Number(row.cash_total_all_time ?? 0),
-};
+              cash_total_all_time: Number(row.cash_total_all_time ?? 0),
+            };
           });
           setKpisByClientId(map);
         } else {
@@ -402,26 +452,49 @@ export default function ClientsPageClient() {
           (kpiPrevData as any[]).forEach((row) => {
             if (!row?.client_id) return;
             mapPrev[row.client_id] = {
-  client_id: row.client_id,
-  learners_current_year: Number(row.learners_current_year ?? 0),
-  learners_total: Number(row.learners_total ?? 0),
-  cash_collected: Number(row.cash_collected ?? 0),
-  cash_pending: Number(row.cash_pending ?? 0),
-  quotes_lost: Number(row.quotes_lost ?? 0),
-  cash_total_all_time: Number(row.cash_total_all_time ?? 0), // ✅ AJOUTE ÇA
-};
+              client_id: row.client_id,
+              learners_current_year: Number(row.learners_current_year ?? 0),
+              learners_total: Number(row.learners_total ?? 0),
+              cash_collected: Number(row.cash_collected ?? 0),
+              cash_pending: Number(row.cash_pending ?? 0),
+              quotes_lost: Number(row.quotes_lost ?? 0),
+              cash_total_all_time: Number(row.cash_total_all_time ?? 0),
+            };
           });
           setKpisPrevByClientId(mapPrev);
         } else {
           setKpisPrevByClientId({});
         }
+
+               if (!quotesErr && Array.isArray(quotesData)) {
+          const mapQuotes: Record<string, number> = {};
+          const mapQuotesCount: Record<string, number> = {};
+
+          (quotesData as ClientQuotesInProgress[]).forEach((row) => {
+            if (!row?.client_id) return;
+            mapQuotes[row.client_id] = Number(row.quotes_in_progress_total ?? 0);
+            mapQuotesCount[row.client_id] = Number(row.quotes_in_progress_count ?? 0);
+          });
+
+          setQuotesInProgressByClientId(mapQuotes);
+          setQuotesInProgressCountByClientId(mapQuotesCount);
+        } else {
+          setQuotesInProgressByClientId({});
+          setQuotesInProgressCountByClientId({});
+        }
       } catch {
-        setKpisByClientId({});
+                setKpisByClientId({});
         setKpisPrevByClientId({});
+        setQuotesInProgressByClientId({});
+        setQuotesInProgressCountByClientId({});
       }
     } catch (e: any) {
       setError(e?.message ?? "Erreur");
-      setClients([]);
+           setClients([]);
+      setKpisByClientId({});
+      setKpisPrevByClientId({});
+      setQuotesInProgressByClientId({});
+      setQuotesInProgressCountByClientId({});
     } finally {
       setLoading(false);
     }
@@ -478,6 +551,7 @@ export default function ClientsPageClient() {
       setError(error.message);
       return;
     }
+
     await fetchClients();
   }
 
@@ -519,12 +593,6 @@ export default function ClientsPageClient() {
       const oid = orgId ?? (await loadOrgId());
       setOrgId(oid);
 
-      if (!oid) {
-        setCreating(false);
-        setError("Aucun organisme associé à ce compte.");
-        return;
-      }
-
       const { error } = await supabase.from("clients").insert({
         org_id: oid,
         name: formName.trim() || null,
@@ -552,7 +620,7 @@ export default function ClientsPageClient() {
     }
   }
 
-  const totals = clients.reduce(
+   const totals = clients.reduce(
     (acc, c) => {
       const k = kpisForYear(kpisByClientId, c.id);
       acc.learners_current_year += k.learners_current_year;
@@ -560,6 +628,8 @@ export default function ClientsPageClient() {
       acc.cash_collected += k.cash_collected;
       acc.cash_pending += k.cash_pending;
       acc.quotes_lost += k.quotes_lost;
+      acc.quotes_in_progress_total += quotesInProgressForClient(c.id);
+      acc.quotes_in_progress_count += quotesInProgressCountForClient(c.id);
       return acc;
     },
     {
@@ -568,6 +638,8 @@ export default function ClientsPageClient() {
       cash_collected: 0,
       cash_pending: 0,
       quotes_lost: 0,
+      quotes_in_progress_total: 0,
+      quotes_in_progress_count: 0,
     }
   );
 
@@ -599,11 +671,10 @@ export default function ClientsPageClient() {
       { key: "cash_total" as const, label: "CA total", align: "right" as const, sortable: true },
       { key: "cash_collected" as const, label: "CA encaissé", align: "right" as const, sortable: true },
       { key: "cash_pending" as const, label: "CA attente", align: "right" as const, sortable: true },
+      { key: "quotes_in_progress_total" as const, label: "Devis en cours", align: "right" as const, sortable: true },
       { key: "quotes_lost" as const, label: "Devis sans suite", align: "right" as const, sortable: true },
       { key: "actions" as const, label: "Actions", align: "center" as const, sortable: false },
-    ]
-      .filter((c) => visibleCols[c.key as ColKey])
-      .map((c) => c);
+    ].filter((c) => visibleCols[c.key as ColKey]);
   }, [visibleCols, currentYear]);
 
   function toggleSort(k: SortKey) {
@@ -638,8 +709,12 @@ export default function ClientsPageClient() {
         return kpi.cash_collected;
       case "cash_pending":
         return kpi.cash_pending;
+      case "quotes_in_progress_total":
+        return quotesInProgressForClient(c.id);
       case "quotes_lost":
         return kpi.quotes_lost;
+      default:
+        return 0;
     }
   }
 
@@ -664,7 +739,7 @@ export default function ClientsPageClient() {
     });
 
     return arr;
-  }, [clientsFiltered, sortKey, sortDir, kpisByClientId]);
+  }, [clientsFiltered, sortKey, sortDir, kpisByClientId, quotesInProgressByClientId]);
 
   const showEmpty = !loading && clientsSorted.length === 0 && !error;
 
@@ -680,52 +755,136 @@ export default function ClientsPageClient() {
           </div>
         ) : null}
 
-        {/* KPI */}
-        <div className="grid grid-cols-1 gap-4 md:grid-cols-6">
-          <KpiCard title="Clients" value={`${clients.length}`} sub="Total clients" tone="gray" icon="👥" />
+               <div className="flex justify-end">
+          <div className="relative">
+            <button
+              type="button"
+              onClick={() => setKpisOpen((v) => !v)}
+              className="inline-flex h-10 items-center gap-2 rounded-xl border border-slate-200 bg-white px-4 text-sm font-extrabold text-slate-800 shadow-sm transition hover:bg-slate-50"
+            >
+              <span>📊</span>
+              <span>Affichage KPI</span>
+              <span style={{ fontSize: 11, opacity: 0.7 }}>{kpisOpen ? "▲" : "▼"}</span>
+            </button>
+            {kpisOpen && (
+              <div style={popoverStyle}>
+                <div style={{ fontWeight: 950, padding: "6px 8px 8px 8px", opacity: 0.8 }}>Afficher</div>
 
-          <KpiCard
-            title={`Apprenants ${currentYear}`}
-            value={`${totals.learners_current_year}`}
-            sub={`${currentYear - 1}: ${totalsPrev.learners_current_year}`}
-            tone="blue"
-            icon="🎓"
-          />
+                {(
+                  [
+                    ["clients", "Clients"],
+                    ["learners_current_year", `Apprenants ${currentYear}`],
+                    ["cash_total", "CA total"],
+                    ["cash_collected", "CA encaissé"],
+                    ["cash_pending", "CA attente"],
+                    ["quotes_in_progress_total", "Devis en cours"],
+                    ["quotes_lost", "Devis sans suite"],
+                  ] as Array<[KpiKey, string]>
+                ).map(([k, label]) => (
+                  <label
+                    key={k}
+                    style={{
+                      ...checkboxRowStyle,
+                      background: "rgba(15,23,42,0.02)",
+                      cursor: "pointer",
+                    }}
+                  >
+                    <span style={{ fontWeight: 900 }}>{label}</span>
+                    <input
+                      type="checkbox"
+                      checked={!!visibleKpis[k]}
+                      onChange={(e) => setVisibleKpis((p) => ({ ...p, [k]: e.target.checked }))}
+                    />
+                  </label>
+                ))}
 
-          <KpiCard
-            title="CA total"
-            value={formatMoneyEUR(totals.cash_collected + totals.cash_pending)}
-            sub={`${currentYear - 1}: ${formatMoneyEUR(totalsPrev.cash_collected + totalsPrev.cash_pending)}`}
-            tone="gray"
-            icon="💰"
-          />
-
-          <KpiCard
-            title="CA encaissé"
-            value={formatMoneyEUR(totals.cash_collected)}
-            sub={`${currentYear - 1}: ${formatMoneyEUR(totalsPrev.cash_collected)}`}
-            tone="green"
-            icon="€"
-          />
-
-          <KpiCard
-            title="CA en attente"
-            value={formatMoneyEUR(totals.cash_pending)}
-            sub={`${currentYear - 1}: ${formatMoneyEUR(totalsPrev.cash_pending)}`}
-            tone="orange"
-            icon="⏱"
-          />
-
-          <KpiCard
-            title="Devis sans suite"
-            value={`${totals.quotes_lost}`}
-            sub={`${currentYear - 1}: ${totalsPrev.quotes_lost}`}
-            tone="red"
-            icon="⛔"
-          />
+                <div style={{ display: "flex", gap: 8, paddingTop: 10 }}>
+                  <button
+                    className="h-10 rounded-xl border px-3 font-semibold hover:bg-gray-50"
+                    type="button"
+                    onClick={() => setVisibleKpis(defaultVisibleKpis)}
+                  >
+                    Reset
+                  </button>
+                  <button
+                    className="h-10 rounded-xl border px-3 font-semibold hover:bg-gray-50"
+                    type="button"
+                    onClick={() => setKpisOpen(false)}
+                  >
+                    Fermer
+                  </button>
+                </div>
+              </div>
+            )}
+          </div>
         </div>
 
-        {/* LIST */}
+        <div className="grid grid-cols-1 gap-4 md:grid-cols-7">
+          {visibleKpis.clients && (
+            <KpiCard title="Clients" value={`${clients.length}`} sub="Total clients" tone="gray" icon="👥" />
+          )}
+
+          {visibleKpis.learners_current_year && (
+            <KpiCard
+              title={`Apprenants ${currentYear}`}
+              value={`${totals.learners_current_year}`}
+              sub={`${currentYear - 1}: ${totalsPrev.learners_current_year}`}
+              tone="blue"
+              icon="🎓"
+            />
+          )}
+
+          {visibleKpis.cash_total && (
+            <KpiCard
+              title="CA total"
+              value={formatMoneyEUR(totals.cash_collected + totals.cash_pending)}
+              sub={`${currentYear - 1}: ${formatMoneyEUR(totalsPrev.cash_collected + totalsPrev.cash_pending)}`}
+              tone="gray"
+              icon="💰"
+            />
+          )}
+
+          {visibleKpis.cash_collected && (
+            <KpiCard
+              title="CA encaissé"
+              value={formatMoneyEUR(totals.cash_collected)}
+              sub={`${currentYear - 1}: ${formatMoneyEUR(totalsPrev.cash_collected)}`}
+              tone="green"
+              icon="€"
+            />
+          )}
+
+          {visibleKpis.cash_pending && (
+            <KpiCard
+              title="CA en attente"
+              value={formatMoneyEUR(totals.cash_pending)}
+              sub={`${currentYear - 1}: ${formatMoneyEUR(totalsPrev.cash_pending)}`}
+              tone="orange"
+              icon="⏱"
+            />
+          )}
+
+          {visibleKpis.quotes_in_progress_total && (
+            <KpiCard
+              title="Devis en cours"
+              value={formatMoneyEUR(totals.quotes_in_progress_total)}
+              sub="Somme des devis en cours"
+              tone="blue"
+              icon="📝"
+            />
+          )}
+
+          {visibleKpis.quotes_lost && (
+            <KpiCard
+              title="Devis sans suite"
+              value={`${totals.quotes_lost}`}
+              sub={`${currentYear - 1}: ${totalsPrev.quotes_lost}`}
+              tone="red"
+              icon="⛔"
+            />
+          )}
+        </div>
+
         <Card>
           <CardBody>
             <div className="flex flex-wrap items-center justify-between gap-3">
@@ -757,6 +916,7 @@ export default function ClientsPageClient() {
                         ["cash_total", "CA total"],
                         ["cash_collected", "CA encaissé"],
                         ["cash_pending", "CA attente"],
+                        ["quotes_in_progress_total", "Devis en cours"],
                         ["quotes_lost", "Devis sans suite"],
                         ["actions", "Actions"],
                       ] as Array<[ColKey, string]>
@@ -868,64 +1028,82 @@ export default function ClientsPageClient() {
                       ) : (
                         clientsSorted.map((c) => {
                           const k = kpisForYear(kpisByClientId, c.id);
+                          const quotesInProgress = quotesInProgressForClient(c.id);
+
                           return (
                             <tr key={c.id}>
                               {columns.map((col) => {
-                                if (col.key === "name")
+                                if (col.key === "name") {
                                   return (
                                     <td key={col.key} style={tdStyleStrong}>
                                       {c.name ?? "—"}
                                     </td>
                                   );
+                                }
 
-                                if (col.key === "city")
+                                if (col.key === "city") {
                                   return (
                                     <td key={col.key} style={tdStyle}>
                                       {c.address_city ?? "—"}
                                     </td>
                                   );
+                                }
 
-                                if (col.key === "learners_current_year")
+                                if (col.key === "learners_current_year") {
                                   return (
                                     <td key={col.key} style={tdStyleRight}>
                                       {k.learners_current_year}
                                     </td>
                                   );
+                                }
 
-                                if (col.key === "learners_total")
+                                if (col.key === "learners_total") {
                                   return (
                                     <td key={col.key} style={tdStyleRight}>
                                       {k.learners_total}
                                     </td>
                                   );
+                                }
 
-                                if (col.key === "cash_total")
+                                if (col.key === "cash_total") {
                                   return (
                                     <td key={col.key} style={tdStyleRight}>
                                       {formatMoneyEUR(k.cash_total_all_time)}
                                     </td>
                                   );
+                                }
 
-                                if (col.key === "cash_collected")
+                                if (col.key === "cash_collected") {
                                   return (
                                     <td key={col.key} style={tdStyleRight}>
                                       {formatMoneyEUR(k.cash_collected)}
                                     </td>
                                   );
+                                }
 
-                                if (col.key === "cash_pending")
+                                if (col.key === "cash_pending") {
                                   return (
                                     <td key={col.key} style={tdStyleRight}>
                                       {formatMoneyEUR(k.cash_pending)}
                                     </td>
                                   );
+                                }
 
-                                if (col.key === "quotes_lost")
+                                if (col.key === "quotes_in_progress_total") {
+                                  return (
+                                    <td key={col.key} style={tdStyleRight}>
+                                      {formatMoneyEUR(quotesInProgress)}
+                                    </td>
+                                  );
+                                }
+
+                                if (col.key === "quotes_lost") {
                                   return (
                                     <td key={col.key} style={tdStyleRight}>
                                       {k.quotes_lost}
                                     </td>
                                   );
+                                }
 
                                 return (
                                   <td key={col.key} style={tdStyleCenter}>
@@ -951,7 +1129,6 @@ export default function ClientsPageClient() {
           </CardBody>
         </Card>
 
-        {/* CREATE */}
         <ModalShell title="Créer un client" open={createOpen} onClose={() => setCreateOpen(false)}>
           <div className="space-y-4">
             <div className="grid grid-cols-2 gap-4">
@@ -1037,7 +1214,6 @@ export default function ClientsPageClient() {
           </div>
         </ModalShell>
 
-        {/* VIEW */}
         <ModalShell
           title="Voir le client"
           open={viewOpen && !!selected}
@@ -1068,7 +1244,6 @@ export default function ClientsPageClient() {
           )}
         </ModalShell>
 
-        {/* EDIT */}
         <ModalShell
           title="Modifier le client"
           open={editOpen && !!selected}

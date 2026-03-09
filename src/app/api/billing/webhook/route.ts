@@ -82,8 +82,7 @@ export async function POST(req: Request) {
 
       const status = String(sub.status ?? "");
       const priceId = (sub.items?.data?.[0]?.price?.id ?? null) as string | null;
-      const planCode = planFromPriceId(priceId);
-
+const planCode = (sub.metadata?.plan ?? planFromPriceId(priceId)) as PlanCode;
       const currentPeriodEnd =
         sub.current_period_end != null
           ? new Date(Number(sub.current_period_end) * 1000).toISOString()

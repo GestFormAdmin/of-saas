@@ -225,7 +225,7 @@ export default function AdminShell({ children }: { children: React.ReactNode }) 
 
       <aside style={{ width: 280, background: "#0d1535", color: "white" }}>
         <SidebarHeaderInline
-          appName="FormaAdmin"
+          appName="FormaTalent"
           orgName={ctx?.org_name ?? null}
           orgLogoUrl={ctx?.org_logo_url ?? null}
           userFullName={userFullName}
